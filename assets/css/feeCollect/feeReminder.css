@@ -1,0 +1,45 @@
+  .card {
+      background-color: #fff;
+      border-radius: 6px;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+      padding: 20px;
+      /* margin: 20px; */
+      font-family: Arial, sans-serif;
+    }
+
+    .card h3 {
+      margin-bottom: 20px;
+      font-size: 22px;
+    }
+
+    .reminder-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-bottom: 20px;
+    }
+
+    .reminder-table thead {
+      background-color: #f9f9f9;
+    }
+
+    .reminder-table th,
+    .reminder-table td {
+      padding: 12px 15px;
+      text-align: left;
+      border-bottom: 1px solid #eee;
+    }
+
+    .save-btn {
+      float: right;
+      background-color: #37474f;
+      color: #fff;
+      border: none;
+      padding: 8px 20px;
+      border-radius: 5px;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+
+    .save-btn:hover {
+      background-color: #263238;
+    }

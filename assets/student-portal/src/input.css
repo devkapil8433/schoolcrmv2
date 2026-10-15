@@ -1,0 +1,363 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    @apply scroll-smooth;
+  }
+
+  body {
+    @apply font-sans text-slate-700 antialiased bg-slate-50;
+  }
+}
+
+@layer components {
+  /* Select2 */
+  .select2-container--default .select2-selection--single {
+    @apply h-10 rounded-lg border-slate-300;
+  }
+
+  .select2-container--default .select2-selection--single .select2-selection__rendered {
+    @apply leading-10 px-3 text-sm;
+  }
+
+  .mfp-hide {
+    display: none !important;
+  }
+
+  /* Bootstrap modal (JS only, no bootstrap.css on student portal) */
+  .modal { display: none; position: fixed; inset: 0; z-index: 1050; overflow: auto; }
+  .modal.in, .modal.show { display: flex !important; align-items: center; justify-content: center; padding: 1rem; }
+  .modal.fade.in, .modal.fade.show { opacity: 1; }
+  .modal-open { overflow: hidden; }
+  .modal-backdrop { position: fixed; inset: 0; background: rgba(15, 23, 42, 0.5); z-index: 1040; }
+  .modal-backdrop.fade.in, .modal-backdrop.fade.show { opacity: 1; }
+  .modal-dialog { position: relative; margin: 0 auto; max-width: 600px; width: 100%; }
+  .modal-dialogfullwidth { max-width: 95%; width: 95%; }
+  .modal-content { @apply bg-white rounded-xl shadow-xl; }
+  .modal-header { @apply flex items-center justify-between px-6 py-4 border-b border-slate-200; }
+  .modal-body { @apply p-6; }
+  .modal .close { @apply text-2xl leading-none bg-transparent border-0 cursor-pointer opacity-60 hover:opacity-100; }
+
+  #ans_modalBox.modal.in,
+  #ans_modalBox.modal.show {
+    display: block !important;
+    padding: 0;
+  }
+
+  #ans_modalBox .modal-dialog {
+    @apply w-full h-full max-w-full m-0 p-0;
+  }
+
+  #ans_modalBox .modal-content {
+    @apply h-full m-0 rounded-none border-0 shadow-none overflow-y-auto;
+  }
+
+  /* DataTables (third-party DOM) inside student portal */
+  #portal-app .dataTables_wrapper {
+    @apply w-full;
+  }
+
+  #portal-app .dataTables_wrapper .dataTables_length,
+  #portal-app .dataTables_wrapper .dataTables_filter,
+  #portal-app .dataTables_wrapper .dataTables_info,
+  #portal-app .dataTables_wrapper .dataTables_paginate {
+    float: none !important;
+    clear: none !important;
+  }
+
+  #portal-app .dataTables_wrapper .portal-dt-toolbar,
+  #portal-app .dataTables_wrapper .portal-dt-footer,
+  #portal-app .dataTables_wrapper .portal-dt-meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.75rem;
+    width: 100%;
+  }
+
+  #portal-app .dataTables_wrapper .portal-dt-toolbar {
+    justify-content: space-between;
+    margin-bottom: 1rem;
+  }
+
+  #portal-app .dataTables_wrapper .portal-dt-footer {
+    justify-content: space-between;
+    margin-top: 1rem;
+    padding-top: 1rem;
+    border-top: 1px solid #e2e8f0;
+  }
+
+  #portal-app .dataTables_wrapper .portal-dt-meta {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  #portal-app .portal-dt-scroll {
+    margin-bottom: 0;
+    width: 100%;
+  }
+
+  #portal-app .dataTables_length label,
+  #portal-app .dataTables_filter label {
+    @apply flex items-center gap-2 text-sm font-medium text-slate-600 m-0;
+  }
+
+  #portal-app .dataTables_length select {
+    @apply rounded-lg border-slate-300 text-sm text-slate-700 bg-white py-1.5 pl-3 pr-8;
+  }
+
+  #portal-app .dataTables_filter input {
+    @apply min-w-[12rem] rounded-lg border-slate-300 text-sm py-2 px-3 focus:border-primary focus:ring-primary;
+  }
+
+  #portal-app .dataTables_info {
+    @apply text-sm text-slate-500;
+  }
+
+  #portal-app .dt-buttons .dt-button {
+    @apply inline-flex items-center justify-center w-9 h-9 rounded-lg border border-slate-300 bg-white text-slate-600 text-sm hover:bg-slate-50 hover:border-primary hover:text-primary;
+  }
+
+  #portal-app .dataTables_paginate {
+    display: flex !important;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 0.25rem;
+    flex-shrink: 0;
+    margin-left: auto;
+  }
+
+  #portal-app .dataTables_paginate .paginate_button {
+    display: inline-flex !important;
+    align-items: center;
+    justify-content: center;
+    min-width: 2.25rem;
+    height: 2.25rem;
+    padding: 0 0.625rem;
+    border-radius: 0.5rem;
+    border: 1px solid #e2e8f0;
+    background: #fff;
+    font-size: 0.875rem;
+    line-height: 1.25rem;
+    color: #475569 !important;
+    margin: 0 !important;
+    cursor: pointer;
+    box-sizing: border-box;
+  }
+
+  #portal-app .dataTables_paginate .paginate_button:hover:not(.disabled):not(.current) {
+    background: #f8fafc;
+    border-color: #cbd5e1;
+    color: #0f172a !important;
+  }
+
+  #portal-app .dataTables_paginate .paginate_button.current,
+  #portal-app .dataTables_paginate .paginate_button.current:hover {
+    background: var(--portal-primary, #4f46e5) !important;
+    border-color: var(--portal-primary, #4f46e5) !important;
+    color: #fff !important;
+  }
+
+  #portal-app .dataTables_paginate .paginate_button.disabled,
+  #portal-app .dataTables_paginate .paginate_button.disabled:hover {
+    opacity: 0.45;
+    cursor: not-allowed;
+    background: #f8fafc !important;
+    color: #94a3b8 !important;
+  }
+
+  #portal-app .dataTables_paginate .ellipsis {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 2.25rem;
+    height: 2.25rem;
+    padding: 0 0.25rem;
+    font-size: 0.875rem;
+    color: #94a3b8;
+  }
+
+  #portal-app .dataTables_wrapper table.dataTable thead th {
+    @apply bg-slate-50 text-slate-600 text-xs font-semibold uppercase tracking-wider px-4 py-3 border-b border-slate-200;
+  }
+
+  #portal-app .dataTables_wrapper table.dataTable tbody td {
+    @apply px-4 py-3 border-b border-slate-100 text-slate-700;
+  }
+
+  #portal-app .dataTables_wrapper table.dataTable tbody tr:hover td {
+    @apply bg-slate-50;
+  }
+
+  #portal-app table.dataTable td.action,
+  #portal-app table.dataTable th.action {
+    @apply text-center whitespace-nowrap;
+  }
+
+  #portal-app .dataTables_empty {
+    @apply py-10 text-center text-sm text-slate-500;
+  }
+
+  #portal-app .dataTables_processing {
+    @apply absolute inset-0 flex items-center justify-center bg-white/85 text-sm font-medium text-slate-600 z-10 rounded-lg;
+  }
+
+  /* Legacy Bootstrap grid inside DataTables toolbar */
+  #portal-app .dataTables_wrapper > .row {
+    @apply flex flex-wrap items-center justify-between gap-3 mb-4;
+  }
+
+  #portal-app .dataTables_wrapper > .row:last-child {
+    @apply mb-0 mt-4 pt-4 border-t border-slate-200;
+  }
+
+  #portal-app .dataTables_wrapper .row > [class*='col-'] {
+    @apply flex-1 w-auto max-w-full p-0;
+  }
+
+  /* Tabs shim (Bootstrap JS) */
+  .tabs-custom .tab-content > .tab-pane {
+    @apply hidden;
+  }
+
+  .tabs-custom .tab-content > .tab-pane.active {
+    @apply block p-5;
+  }
+
+  .tabs-custom > .nav-tabs {
+    @apply px-5 pt-4 pb-0 bg-slate-50/80 border-b border-slate-200 flex flex-wrap gap-1 list-none m-0;
+  }
+
+  .tabs-custom > .nav-tabs > li {
+    @apply list-none m-0;
+  }
+
+  .tabs-custom > .nav-tabs > li > a {
+    @apply inline-flex items-center gap-2 px-4 py-3 text-sm font-medium text-slate-500 border-b-2 border-transparent -mb-px no-underline transition-colors hover:text-slate-800;
+  }
+
+  .tabs-custom > .nav-tabs > li.active > a {
+    @apply text-primary border-primary;
+  }
+
+  .step-pane {
+    @apply hidden;
+  }
+
+  .step-pane.active {
+    @apply block;
+  }
+
+  .exam-option:has(input:checked) {
+    @apply border-primary bg-primary-50;
+  }
+
+  /* Form helpers (legacy markup used by validation JS) */
+  #portal-app .form-group {
+    @apply mb-0;
+  }
+
+  #portal-app .form-group .error:not(:empty) {
+    @apply mt-1 block text-sm text-red-600;
+  }
+
+  #portal-app .fileupload .btn-file {
+    @apply cursor-pointer;
+  }
+
+  #portal-app .fileupload .btn-file input[type="file"] {
+    @apply sr-only;
+  }
+
+  /* Summernote inside student portal */
+  #portal-app .note-editor.note-frame {
+    @apply rounded-lg border border-slate-300 shadow-sm overflow-hidden;
+  }
+
+  #portal-app .note-toolbar {
+    @apply bg-slate-50 border-b border-slate-200 px-2 py-1;
+  }
+
+  #portal-app .note-editable {
+    @apply min-h-[180px] p-3 text-sm text-slate-700;
+  }
+}
+
+@layer utilities {
+  @media print {
+    @page {
+      margin: -2px;
+    }
+  }
+}
+
+/* Magnific Popup */
+.mfp-bg {
+  z-index: 10040;
+}
+
+.mfp-wrap {
+  z-index: 10050;
+}
+
+.mfp-container {
+  display: flex !important;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  box-sizing: border-box;
+}
+
+.mfp-container:before {
+  display: none !important;
+}
+
+.mfp-content {
+  position: relative;
+  width: 100%;
+  max-width: 56rem;
+  margin: 0 auto;
+  text-align: left;
+}
+
+.mfp-content .zoom-anim-dialog {
+  width: 100%;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.my-mfp-zoom-in .zoom-anim-dialog {
+  opacity: 0;
+  transition: all 0.2s ease-in-out;
+  transform: scale(0.92);
+}
+
+.my-mfp-zoom-in.mfp-ready .zoom-anim-dialog {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.my-mfp-zoom-in.mfp-removing .zoom-anim-dialog {
+  opacity: 0;
+  transform: scale(0.92);
+}
+
+.my-mfp-zoom-in.mfp-bg {
+  opacity: 0.001;
+  transition: opacity 0.3s ease-out;
+}
+
+.my-mfp-zoom-in.mfp-ready.mfp-bg {
+  opacity: 0.8;
+}
+
+.my-mfp-zoom-in.mfp-removing.mfp-bg {
+  opacity: 0;
+}
+
+.swal2-container {
+  z-index: 10100 !important;
+}
