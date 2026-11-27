@@ -31,6 +31,12 @@
         /* text-align: left; */
         padding-left: 12px;
     }
+
+    .fee-structure-table tfoot td {
+        background: #f5f7fa;
+        font-weight: 700;
+        border-top: 2px solid #cfd6e0;
+    }
 </style>
 
 
@@ -192,8 +198,9 @@ if (!empty($branch_id)) :
                             </td>
                         </tr>
                     <?php endforeach; ?>
-
-                    <!-- 🔥 GRAND TOTAL -->
+                </tbody>
+                <tfoot>
+                    <!-- GRAND TOTAL in table footer -->
                     <tr style="background:#f5f7fa;">
                         <td style="font-size:17px;font-weight:800;">GRAND TOTAL</td>
 
@@ -234,11 +241,11 @@ if (!empty($branch_id)) :
                         <td style="font-size:18px;font-weight:800;">
                             <?= number_format($grandReceived, 2) ?>
                         </td>
-                        <td style="font-size:18px;font-weight:800;color:red;">
+                        <td style="font-size:18px;font-weight:800;color:<?= $grandRemaining > 0 ? 'red' : 'green' ?>;">
                             <?= number_format($grandRemaining, 2) ?>
                         </td>
                     </tr>
-                </tbody>
+                </tfoot>
             </table>
         </div>
 

@@ -101,39 +101,76 @@ class Fees_model extends MY_Model
 
     public function getInvoiceStatus($enrollID = '')
     {
-
-        $status = "";
+        $status = 'unpaid';
         $sessionID = get_session_id();
-        $sql = "SELECT SUM(`fee_groups_details`.`amount` + `fee_allocation`.`prev_due`) as `total`, min(`fee_allocation`.`id`) as `inv_no` FROM `fee_allocation` LEFT JOIN `fee_groups_details` ON `fee_groups_details`.`fee_groups_id` = `fee_allocation`.`group_id` LEFT JOIN `fees_type` ON `fees_type`.`id` = `fee_groups_details`.`fee_type_id` WHERE `fee_allocation`.`student_id` = " . $this->db->escape($enrollID) . " AND `fee_allocation`.`session_id` = " . $this->db->escape($sessionID);
-        $balance = $this->db->query($sql)->row_array();
-        $invNo = empty($balance['inv_no']) ? 0 : str_pad($balance['inv_no'], 4, '0', STR_PAD_LEFT);
+        $invNo = 0;
 
-        // calculation total transport fee
+        $enroll = $this->db->select('student_id, class_id')
+            ->where('id', $enrollID)
+            ->get('enroll')
+            ->row_array();
+
+        $totalAmount = 0;
+        $totalPaid = 0;
+        $totalBalance = 0;
+
+        // Current fee system: student_fee_allocation
+        if (!empty($enroll)) {
+            $this->db->select('IFNULL(SUM(sfa.amount), 0) as total, IFNULL(SUM(sfa.paid), 0) as paid, IFNULL(SUM(sfa.balance), 0) as balance, MIN(sfa.id) as inv_no', false);
+            $this->db->from('student_fee_allocation as sfa');
+            $this->db->where('sfa.student_id', $enroll['student_id']);
+            $this->db->where('sfa.class_id', $enroll['class_id']);
+            $sfa = $this->db->get()->row_array();
+            if (!empty($sfa)) {
+                $totalAmount = (float) $sfa['total'];
+                $totalPaid = (float) $sfa['paid'];
+                $totalBalance = (float) $sfa['balance'];
+                $invNo = empty($sfa['inv_no']) ? 0 : str_pad($sfa['inv_no'], 4, '0', STR_PAD_LEFT);
+            }
+        }
+
+        // Fallback: legacy fee_allocation
+        if ($totalAmount <= 0) {
+            $sql = "SELECT SUM(`fee_groups_details`.`amount` + `fee_allocation`.`prev_due`) as `total`, min(`fee_allocation`.`id`) as `inv_no` FROM `fee_allocation` LEFT JOIN `fee_groups_details` ON `fee_groups_details`.`fee_groups_id` = `fee_allocation`.`group_id` LEFT JOIN `fees_type` ON `fees_type`.`id` = `fee_groups_details`.`fee_type_id` WHERE `fee_allocation`.`student_id` = " . $this->db->escape($enrollID) . " AND `fee_allocation`.`session_id` = " . $this->db->escape($sessionID);
+            $balance = $this->db->query($sql)->row_array();
+            $totalAmount = (float) ($balance['total'] ?? 0);
+            $invNo = empty($balance['inv_no']) ? $invNo : str_pad($balance['inv_no'], 4, '0', STR_PAD_LEFT);
+
+            $this->db->select("IFNULL(SUM(fee_payment_history.amount), 0) as amount, IFNULL(SUM(fee_payment_history.discount), 0) as discount");
+            $this->db->from("fee_payment_history");
+            $this->db->join("fee_allocation", "fee_allocation.id = fee_payment_history.allocation_id", "left");
+            $this->db->where("fee_allocation.student_id", $enrollID);
+            $this->db->where("fee_allocation.session_id", $sessionID);
+            $paid = $this->db->get()->row_array();
+            $totalPaid = (float) ($paid['amount'] ?? 0) + (float) ($paid['discount'] ?? 0);
+            $totalBalance = max(0, $totalAmount - $totalPaid);
+        }
+
+        // Transport fees
         $this->db->select("IFNULL(SUM(transport_stoppage_point.route_fare), 0) as amount");
         $this->db->from('transport_fee_details');
         $this->db->join('transport_stoppage_point', 'transport_stoppage_point.id = transport_fee_details.stoppage_point_id', 'inner');
         $this->db->where('transport_fee_details.enroll_id', $enrollID);
-        $trans_amount = $this->db->get()->row()->amount;
+        $trans_amount = (float) $this->db->get()->row()->amount;
+        $totalAmount += $trans_amount;
 
-        // calculation payment history
-        $this->db->select("IFNULL(SUM(fee_payment_history.amount), 0) as amount, IFNULL(SUM(fee_payment_history.discount), 0) as discount, IFNULL(SUM(fee_payment_history.fine), 0) as fine");
-        $this->db->from("fee_payment_history");
-        $this->db->join("fee_allocation", "fee_allocation.id = fee_payment_history.allocation_id", "left");
-        $this->db->join("transport_fee_details", "transport_fee_details.id = fee_payment_history.transport_fee_details_id", "left");
-        $this->db->where("fee_allocation.student_id", $enrollID);
-        $this->db->where("fee_allocation.session_id", $sessionID);
-        $this->db->or_group_start();
-        $this->db->where("transport_fee_details.enroll_id", $enrollID);
-        $this->db->group_end();
-        $paid = $this->db->get()->row_array();
+        $this->db->select("IFNULL(SUM(h.amount), 0) as amount, IFNULL(SUM(h.discount), 0) as discount");
+        $this->db->from("fee_payment_history as h");
+        $this->db->join("transport_fee_details as tfd", "tfd.id = h.transport_fee_details_id", "inner");
+        $this->db->where("tfd.enroll_id", $enrollID);
+        $transPaid = $this->db->get()->row_array();
+        $transPaidTotal = (float) ($transPaid['amount'] ?? 0) + (float) ($transPaid['discount'] ?? 0);
+        $totalPaid += $transPaidTotal;
+        $totalBalance += max(0, $trans_amount - $transPaidTotal);
 
-        if ($paid['amount'] == 0) {
+        if ($totalPaid <= 0) {
             $status = 'unpaid';
-        } elseif (($balance['total'] + $trans_amount) == ($paid['amount'] + $paid['discount'])) {
+        } elseif ($totalBalance <= 0 && $totalAmount > 0) {
             $status = 'total';
-        } elseif ($paid['amount'] > 1) {
+        } elseif ($totalPaid > 0) {
             $status = 'partly';
         }
+
         return array('status' => $status, 'invoice_no' => $invNo);
     }
 
@@ -253,14 +290,14 @@ class Fees_model extends MY_Model
         // getting a list of classes assigned to a teacher
         $assigned_cs_list = $this->app_lib->get_ownClassSection();
 
+        // List enrolled students by class/section (current fee system uses student_fee_allocation)
         $this->datatables->select('e.id as enroll_id,e.student_id,e.roll,s.first_name,s.last_name,s.register_no,s.mobileno,c.name as class_name,se.name as section_name');
-        $this->datatables->from('fee_allocation as fa');
-        $this->datatables->join('enroll as e', 'e.id = fa.student_id and e.session_id = fa.session_id', 'inner');
-        $this->datatables->join('student as s', 's.id = e.student_id', 'left');
+        $this->datatables->from('enroll as e');
+        $this->datatables->join('student as s', 's.id = e.student_id', 'inner');
         $this->datatables->join('class as c', 'c.id = e.class_id', 'left');
         $this->datatables->join('section as se', 'se.id = e.section_id', 'left');
-        $this->datatables->where('fa.branch_id', $branchID);
-        $this->datatables->where('fa.session_id', get_session_id());
+        $this->datatables->where('e.branch_id', $branchID);
+        $this->datatables->where('e.session_id', get_session_id());
         $this->datatables->where('s.active', 1);
         if (!empty($class_id)) {
             $this->datatables->where('e.class_id', $class_id);
@@ -283,9 +320,9 @@ class Fees_model extends MY_Model
             $this->datatables->group_end();
         }
         $this->datatables->search_value('s.first_name,s.last_name,s.register_no,s.mobileno');
-        $this->datatables->column_order('e.id,s.first_name,c.id,se.id,s.register_no,e.roll,s.mobileno,fa.id');
-        $this->datatables->group_by('fa.student_id');
-        $this->datatables->order_by('fa.id', 'asc');
+        $this->datatables->column_order('e.id,s.first_name,c.id,se.id,s.register_no,e.roll,s.mobileno,e.id');
+        $this->datatables->group_by('e.id');
+        $this->datatables->order_by('e.id', 'asc');
         $results = $this->datatables->generate();
         $records = array();
         $records = json_decode($results);
@@ -310,11 +347,26 @@ class Fees_model extends MY_Model
             $row[] = $record->register_no;
             $row[] = $record->roll;
             $row[] = $record->mobileno;
-            // getting fees group list
+            // Fee group: show first fee type only; rest collapsible via View more
             $feegroup = $this->getfeeGroup($record->enroll_id);
             $groupList = '';
-            foreach ($feegroup as $key => $value) {
-                $groupList .= "- " . $value['name'] . "<br>";
+            if (!empty($feegroup)) {
+                $names = array_values(array_map(function ($v) {
+                    return html_escape($v['name']);
+                }, $feegroup));
+                $visible = array_shift($names);
+                $groupList = '<div class="fee-group-wrap">';
+                $groupList .= '<div class="fee-group-visible">- ' . $visible . '</div>';
+                if (!empty($names)) {
+                    $uid = 'fg_' . $record->enroll_id;
+                    $groupList .= '<div class="fee-group-more" id="' . $uid . '" style="display:none;">';
+                    foreach ($names as $name) {
+                        $groupList .= '- ' . $name . '<br>';
+                    }
+                    $groupList .= '</div>';
+                    $groupList .= '<a href="javascript:void(0);" class="fee-group-toggle text-primary" data-target="' . $uid . '" data-more="' . translate('view_more') . '" data-less="' . translate('view_less') . '">' . translate('view_more') . '</a>';
+                }
+                $groupList .= '</div>';
             }
             $row[] = $groupList;
             // fees status
@@ -569,6 +621,27 @@ class Fees_model extends MY_Model
 
     public function getfeeGroup($studentID = '')
     {
+        // $studentID here is enroll_id (legacy naming)
+        $enroll = $this->db->select('student_id, class_id')
+            ->where('id', $studentID)
+            ->get('enroll')
+            ->row_array();
+
+        if (!empty($enroll)) {
+            $this->db->select('ft.fee_name as name');
+            $this->db->from('student_fee_allocation as sfa');
+            $this->db->join('fees_type as ft', 'ft.id = sfa.fee_type_id', 'inner');
+            $this->db->where('sfa.student_id', $enroll['student_id']);
+            $this->db->where('sfa.class_id', $enroll['class_id']);
+            $this->db->group_by('ft.id');
+            $this->db->order_by('ft.fee_name', 'asc');
+            $rows = $this->db->get()->result_array();
+            if (!empty($rows)) {
+                return $rows;
+            }
+        }
+
+        // Fallback: legacy fee_allocation groups
         $this->db->select('g.name');
         $this->db->from('fee_allocation as fa');
         $this->db->join('fee_groups as g', 'g.id = fa.group_id', 'inner');
@@ -2207,7 +2280,8 @@ class Fees_model extends MY_Model
     public function getFeesLastStudents($classID = '', $sectionID = '')
     {
         $sessionID = get_session_id();
-        $this->db->select("s.id as student_id, s.register_no, CONCAT(s.first_name, ' ', s.last_name) as student_name, c.name as class_name, se.name as section_name, p.name as father_name, IFNULL(slb.last_balance, 0) as last_balance, IFNULL(SUM(sfa.balance), 0) as current_balance");
+        // Current balance = last-year carry forward + outstanding allocated fees (amount + fine - paid)
+        $this->db->select("s.id as student_id, s.register_no, CONCAT(s.first_name, ' ', s.last_name) as student_name, c.name as class_name, se.name as section_name, p.name as father_name, IFNULL(MAX(slb.last_balance), 0) as last_balance, (IFNULL(MAX(slb.last_balance), 0) + IFNULL(SUM(GREATEST(IFNULL(sfa.balance, 0), (IFNULL(sfa.amount, 0) + IFNULL(sfa.fine_calculated_amount, 0) - IFNULL(sfa.paid, 0)))), 0)) as current_balance, IFNULL(SUM(GREATEST(IFNULL(sfa.balance, 0), (IFNULL(sfa.amount, 0) + IFNULL(sfa.fine_calculated_amount, 0) - IFNULL(sfa.paid, 0)))), 0) as fee_outstanding", false);
         $this->db->from('enroll e');
         $this->db->join('student s', 's.id = e.student_id', 'inner');
         $this->db->join('class c', 'c.id = e.class_id', 'left');
@@ -2218,11 +2292,22 @@ class Fees_model extends MY_Model
         $this->db->where('e.session_id', $sessionID);
         $this->db->where('e.class_id', $classID);
         $this->db->where('e.section_id', $sectionID);
-        if (!is_superadmin_loggedin()) {
+        $this->db->where('s.active', 1);
+        $branchID = $this->application_model->get_branch_id();
+        if (!empty($branchID)) {
+            $this->db->where('e.branch_id', $branchID);
+        } elseif (!is_superadmin_loggedin()) {
             $this->db->where('e.branch_id', get_loggedin_branch_id());
         }
         $this->db->group_by('s.id');
-        return $this->db->order_by('s.first_name', 'asc')->get()->result_array();
+        $rows = $this->db->order_by('s.first_name', 'asc')->get()->result_array();
+        foreach ($rows as &$row) {
+            $row['last_balance'] = number_format((float) ($row['last_balance'] ?? 0), 2, '.', '');
+            $row['current_balance'] = number_format((float) ($row['current_balance'] ?? 0), 2, '.', '');
+            $row['fee_outstanding'] = number_format((float) ($row['fee_outstanding'] ?? 0), 2, '.', '');
+        }
+        unset($row);
+        return $rows;
     }
 
     public function saveStudentLastBalance($studentID, $balance, $sessionID = '')
@@ -2307,15 +2392,17 @@ class Fees_model extends MY_Model
     public function getFeeDefaulters($filters = array())
     {
         $sessionID = get_session_id();
-        $this->db->select("s.id as student_id, s.register_no, s.first_name, s.last_name, e.roll as roll_no, c.name as class_name, se.name as section_name, GROUP_CONCAT(DISTINCT ft.fee_name ORDER BY ft.fee_name SEPARATOR '\n') as fee_name, GROUP_CONCAT(sfa.amount ORDER BY ft.fee_name SEPARATOR '\n') as total_fee, GROUP_CONCAT(sfa.paid ORDER BY ft.fee_name SEPARATOR '\n') as total_paid, GROUP_CONCAT((IFNULL(sfa.amount, 0) + IFNULL(sfa.fine_calculated_amount, 0) - IFNULL(sfa.paid, 0)) ORDER BY ft.fee_name SEPARATOR '\n') as outstanding, GROUP_CONCAT(sfa.fine_calculated_amount ORDER BY ft.fee_name SEPARATOR '\n') as fine");
+        $this->db->select("s.id as student_id, s.register_no, s.first_name, s.last_name, e.roll as roll_no, c.name as class_name, se.name as section_name, GROUP_CONCAT(DISTINCT ft.fee_name ORDER BY ft.fee_name SEPARATOR '\n') as fee_name, GROUP_CONCAT(sfa.amount ORDER BY ft.fee_name SEPARATOR '\n') as total_fee, GROUP_CONCAT(sfa.paid ORDER BY ft.fee_name SEPARATOR '\n') as total_paid, GROUP_CONCAT((IFNULL(sfa.amount, 0) + IFNULL(sfa.fine_calculated_amount, 0) - IFNULL(sfa.paid, 0)) ORDER BY ft.fee_name SEPARATOR '\n') as outstanding, GROUP_CONCAT(IFNULL(sfa.fine_calculated_amount, 0) ORDER BY ft.fee_name SEPARATOR '\n') as fine", false);
         $this->db->from('student_fee_allocation sfa');
         $this->db->join('student s', 's.id = sfa.student_id', 'inner');
-        $this->db->join('enroll e', 'e.student_id = s.id AND e.class_id = sfa.class_id', 'inner');
+        $this->db->join('enroll e', 'e.student_id = s.id AND e.class_id = sfa.class_id AND e.session_id = ' . $this->db->escape($sessionID), 'inner', false);
         $this->db->join('class c', 'c.id = e.class_id', 'left');
         $this->db->join('section se', 'se.id = e.section_id', 'left');
         $this->db->join('fees_type ft', 'ft.id = sfa.fee_type_id', 'left');
         $this->db->where('e.session_id', $sessionID);
-        $this->db->where('sfa.balance >', 0);
+        $this->db->where('s.active', 1);
+        // Outstanding: balance column, or computed amount+fine-paid
+        $this->db->where('(IFNULL(sfa.balance, 0) > 0 OR (IFNULL(sfa.amount, 0) + IFNULL(sfa.fine_calculated_amount, 0) - IFNULL(sfa.paid, 0)) > 0)', null, false);
         if (!empty($filters['class_id'])) {
             $this->db->where('e.class_id', $filters['class_id']);
         }
@@ -2336,14 +2423,26 @@ class Fees_model extends MY_Model
                     continue;
                 }
                 // DB stores months as 1..12 (no leading zero); form may send 01..12
-                $normalized = (string) (int) $month;
-                if ($normalized !== '0') {
+                $normalized = (int) $month;
+                if ($normalized >= 1 && $normalized <= 12) {
                     $months[] = $normalized;
                 }
             }
             $months = array_values(array_unique($months));
             if (!empty($months)) {
-                $this->db->where_in('sfa.month', $months);
+                // Match allocation month (single or comma-separated) OR due_date month
+                $this->db->group_start();
+                foreach ($months as $i => $m) {
+                    $mEsc = $this->db->escape((string) $m);
+                    $mPad = $this->db->escape(str_pad((string) $m, 2, '0', STR_PAD_LEFT));
+                    $clause = "(sfa.month = {$mEsc} OR sfa.month = {$mPad} OR FIND_IN_SET({$mEsc}, REPLACE(sfa.month, ' ', '')) OR FIND_IN_SET({$mPad}, REPLACE(sfa.month, ' ', '')) OR MONTH(sfa.due_date) = {$m})";
+                    if ($i === 0) {
+                        $this->db->where($clause, null, false);
+                    } else {
+                        $this->db->or_where($clause, null, false);
+                    }
+                }
+                $this->db->group_end();
             }
         }
         if (!empty($filters['feeTypes'])) {
@@ -2352,14 +2451,18 @@ class Fees_model extends MY_Model
                 $this->db->where_in('sfa.fee_type_id', $feeTypes);
             }
         }
-        if (!is_superadmin_loggedin()) {
+        $branchID = $this->application_model->get_branch_id();
+        if (!empty($branchID)) {
+            $this->db->where('e.branch_id', $branchID);
+        } elseif (!is_superadmin_loggedin()) {
             $this->db->where('e.branch_id', get_loggedin_branch_id());
         }
         $this->db->group_by('s.id');
+        $this->db->order_by('s.first_name', 'asc');
         $rows = $this->db->get()->result_array();
         if (!empty($filters['min_due']) || !empty($filters['max_due'])) {
             $rows = array_values(array_filter($rows, function ($row) use ($filters) {
-                $due = array_sum(array_map('floatval', explode("\n", (string) $row['outstanding'])));
+                $due = array_sum(array_map('floatval', preg_split("/\n|,/", (string) $row['outstanding'])));
                 if (!empty($filters['min_due']) && $due < (float) $filters['min_due']) {
                     return false;
                 }

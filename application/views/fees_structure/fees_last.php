@@ -48,7 +48,6 @@ endif;
 
 <?php
 if (!empty($branch_id)) :
-    if (is_superadmin_loggedin()) :
 ?>
         <div class="content-wrapper panel">
             <div class="container-fluid">
@@ -117,7 +116,7 @@ if (!empty($branch_id)) :
                                     </tbody>
                                     <tfoot>
                                         <tr class="table-footer-totals">
-                                            <!-- <td colspan="6" class="text-end">Totals:</td> -->
+                                            <td></td>
                                             <td></td>
                                             <td></td>
                                             <td></td>
@@ -137,43 +136,16 @@ if (!empty($branch_id)) :
             </div>
         </div>
 <?php
-    endif;
 endif;
 ?>
 
-<!-- <script>
-    $('#filterForm').on('submit', function(e) {
-        e.preventDefault();
-
-        $.ajax({
-            url: "<?= base_url('fees/fetch_fees_last') ?>",
-            type: "POST",
-            data: $(this).serialize() + '&<?= $this->security->get_csrf_token_name(); ?>=<?= $this->security->get_csrf_hash(); ?>',
-            dataType: "json",
-            success: function(response) {
-                var table = $('#feesTable').DataTable();
-                table.clear();
-
-                $.each(response, function(index, row) {
-                    table.row.add([
-                        '<input type="checkbox" class="row-check">',
-                        index + 1,
-                        row.register_no,
-                        row.student_name,
-                        row.class_name + ' (' + row.section_name + ')',
-                        row.father_name, '<input type="text" class="form-control last-balance-input" data-student="' + row.student_id + '" value="' + (row.last_balance ?? '') + '" />', row.current_balance,
-                        '', '', ''
-                    ]);
-                });
-                table.draw();
-            },
-            error: function(xhr) {
-                console.log(xhr.responseText);
-            }
-        });
-    });
-</script> -->
 <script>
+function formatBalance(val) {
+    var n = parseFloat(val);
+    if (isNaN(n)) n = 0;
+    return n.toFixed(2);
+}
+
 $('#filterForm').on('submit', function(e) {
     e.preventDefault();
 
@@ -183,9 +155,13 @@ $('#filterForm').on('submit', function(e) {
         data: $(this).serialize() + '&<?= $this->security->get_csrf_token_name(); ?>=<?= $this->security->get_csrf_hash(); ?>',
         dataType: "json",
         success: function(response) {
-
             var table = $('#feesTable').DataTable();
             table.clear();
+
+            if (!response || !response.length) {
+                table.draw();
+                return;
+            }
 
             $.each(response, function(index, row) {
                 table.row.add([
@@ -194,18 +170,13 @@ $('#filterForm').on('submit', function(e) {
                     row.register_no,
                     row.student_name,
                     row.class_name + ' (' + row.section_name + ')',
-                    row.father_name,
-
+                    row.father_name || '',
                     '<input type="text" class="form-control last-balance-input" ' +
                         'id="last_balance_' + row.student_id + '" ' +
                         'data-student="' + row.student_id + '" ' +
-                        'value="' + (row.last_balance ?? '') + '" />',
-
-                    row.current_balance,
-
-                    '<button class="btn btn-sm btn-primary save-last-balance" data-student="' + row.student_id + '">Save</button>',
-
-                    '', ''
+                        'value="' + formatBalance(row.last_balance) + '" />',
+                    formatBalance(row.current_balance),
+                    '<button class="btn btn-sm btn-primary save-last-balance" data-student="' + row.student_id + '">Save</button>'
                 ]);
             });
 

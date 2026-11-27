@@ -1892,7 +1892,7 @@ class Fees extends Admin_Controller
 
     public function fetch_fees_last()
     {
-        if (!get_permission('fees_register', 'is_view')) {
+        if (!get_permission('fees_last', 'is_view') && !get_permission('fees_register', 'is_view')) {
             echo json_encode(array());
             return;
         }
@@ -1907,7 +1907,7 @@ class Fees extends Admin_Controller
 
     public function save_last_balance()
     {
-        if (!get_permission('fees_register', 'is_edit')) {
+        if (!get_permission('fees_last', 'is_edit') && !get_permission('fees_register', 'is_edit')) {
             echo json_encode(array('status' => false));
             return;
         }

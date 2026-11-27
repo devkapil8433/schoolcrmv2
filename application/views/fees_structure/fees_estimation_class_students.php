@@ -145,7 +145,8 @@
                             </td>
                         </tr>
                     <?php endforeach; ?>
-
+                </tbody>
+                <tfoot>
                     <tr style="background:#f5f7fa;">
                         <td style="font-size:17px;font-weight:800;">GRAND TOTAL</td>
                         <td style="font-weight:800;">
@@ -176,11 +177,11 @@
                         <td style="font-size:18px;font-weight:800;">
                             <?= number_format($grandReceived, 2) ?>
                         </td>
-                        <td style="font-size:18px;font-weight:800;color:red;">
+                        <td style="font-size:18px;font-weight:800;color:<?= $grandRemaining > 0 ? 'red' : 'green' ?>;">
                             <?= number_format($grandRemaining, 2) ?>
                         </td>
                     </tr>
-                </tbody>
+                </tfoot>
             </table>
         </div>
     </div>

@@ -310,7 +310,13 @@ class fees_structure extends Admin_Controller
         if (!get_permission('fees_defaulter', 'is_view')) {
             access_denied();
         }
-        $branchID = $this->input->post('branch_id');
+        $branchID = $this->application_model->get_branch_id();
+        if ($this->input->post('branch_id')) {
+            $branchID = $this->input->post('branch_id');
+        }
+        if (empty($branchID) && !is_superadmin_loggedin()) {
+            $branchID = get_loggedin_branch_id();
+        }
         $this->data['headerelements'] = array(
             'css' => array(
                 'vendor/bootstrap-fileupload/bootstrap-fileupload.min.css',
@@ -362,10 +368,16 @@ class fees_structure extends Admin_Controller
     }
     public function fees_last()
     {
-        if (!get_permission('fees_register', 'is_view')) {
+        if (!get_permission('fees_last', 'is_view') && !get_permission('fees_register', 'is_view')) {
             access_denied();
         }
-        $branchID = $this->input->post('branch_id');
+        $branchID = $this->application_model->get_branch_id();
+        if ($this->input->post('branch_id')) {
+            $branchID = $this->input->post('branch_id');
+        }
+        if (empty($branchID) && !is_superadmin_loggedin()) {
+            $branchID = get_loggedin_branch_id();
+        }
         $this->data['headerelements'] = array(
             'css' => array(
                 'vendor/bootstrap-fileupload/bootstrap-fileupload.min.css',

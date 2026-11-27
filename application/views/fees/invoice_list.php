@@ -313,6 +313,19 @@
 		});
 	});
 
+	$(document).on('click', '.fee-group-toggle', function(e) {
+		e.preventDefault();
+		var $btn = $(this);
+		var $more = $('#' + $btn.data('target'));
+		if ($more.is(':visible')) {
+			$more.slideUp(150);
+			$btn.text($btn.data('more') || 'View more');
+		} else {
+			$more.slideDown(150);
+			$btn.text($btn.data('less') || 'View less');
+		}
+	});
+
 	function pdf_sendByemail(enrollID = '', ele) {
 		var btn = $(ele);
 		if (enrollID !== '') {

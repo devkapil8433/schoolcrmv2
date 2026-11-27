@@ -51,7 +51,6 @@ endif;
 
 <?php
 if (!empty($branch_id)) :
-    if (is_superadmin_loggedin()) :
 ?>
         <div class="content-wrapper panel">
             <div class="container-fluid">
@@ -179,7 +178,6 @@ if (!empty($branch_id)) :
             </div>
         </div>
 <?php
-    endif;
 endif;
 ?>
 

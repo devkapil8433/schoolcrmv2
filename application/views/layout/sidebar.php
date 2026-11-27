@@ -342,11 +342,11 @@
                                 </a>
                             </li>
                              <?php }  if(get_permission('complaint', 'is_view')){ ?>
-                            <li class="<?php if ($sub_page == 'fees_structure/complaint' || $sub_page == 'fees_structure/complaint_edit') echo 'nav-active';?>">
+                            <!-- <li class="<?php //if ($sub_page == 'fees_structure/complaint' || $sub_page == 'fees_structure/complaint_edit') echo 'nav-active';?>">
                                 <a href="<?=base_url('fees_structure/day_books')?>">
                                     <span><i class="fas fa-caret-right" aria-hidden="true"></i><?=translate('fees_day_books')?></span>
                                 </a>
-                            </li>
+                            </li> -->
                              <?php }  if(get_permission('complaint', 'is_view')){ ?>
                             <!-- <li class="<?php if ($sub_page == 'fees_structure/complaint' || $sub_page == 'fees_structure/complaint_edit') echo 'nav-active';?>">
                                 <a href="<?=base_url('fees_structure/fees_discount_report')?>">
@@ -354,11 +354,11 @@
                                 </a>
                             </li> -->
                              <?php }  if(get_permission('complaint', 'is_view')){ ?>
-                            <li class="<?php if ($sub_page == 'fees_structure/complaint' || $sub_page == 'fees_structure/complaint_edit') echo 'nav-active';?>">
+                            <!-- <li class="<?php //if ($sub_page == 'fees_structure/complaint' || $sub_page == 'fees_structure/complaint_edit') echo 'nav-active';?>">
                                 <a href="<?=base_url('fees_structure/demand_register')?>">
                                     <span><i class="fas fa-caret-right" aria-hidden="true"></i><?=translate('demand_register')?></span>
                                 </a>
-                            </li>
+                            </li> -->
                              <?php }  if(get_permission('fees_register', 'is_view')){ ?>
                             <li class="<?php if ($sub_page == 'fees_structure/fees_register' || $sub_page == 'fees_structure/fees_register_edit') echo 'nav-active';?>">
                                 <a href="<?=base_url('fees_structure/fees_register')?>">
