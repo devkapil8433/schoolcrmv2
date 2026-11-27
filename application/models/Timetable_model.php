@@ -36,15 +36,29 @@ class Timetable_model extends MY_Model
         }
         $timeStart = date('H:i:s', strtotime($data['time_start']));
         $timeEnd = date('H:i:s', strtotime($data['time_end']));
+        $classRoom = isset($data['class_room']) ? (string) $data['class_room'] : '';
+        $teacherID = (int) (isset($data['teacher_id']) ? $data['teacher_id'] : 0);
+        if ($isBreak && strtoupper(trim($classRoom)) === 'DIARY CHECK' && $id > 0) {
+            $existingTeacher = $this->db->select('teacher_id')->get_where('timetable_class', array(
+                'id' => $id,
+                'class_id' => $classID,
+                'section_id' => $sectionID,
+                'branch_id' => $branchID,
+                'session_id' => $sessionID,
+            ))->row();
+            if (!empty($existingTeacher)) {
+                $teacherID = (int) $existingTeacher->teacher_id;
+            }
+        }
 
         $row = array(
             'class_id' => $classID,
             'section_id' => $sectionID,
             'subject_id' => $isBreak ? 0 : (int) (isset($data['subject_id']) ? $data['subject_id'] : 0),
-            'teacher_id' => $isBreak ? 0 : (int) (isset($data['teacher_id']) ? $data['teacher_id'] : 0),
+            'teacher_id' => ($isBreak && strtoupper(trim($classRoom)) !== 'DIARY CHECK') ? 0 : $teacherID,
             'time_start' => $timeStart,
             'time_end' => $timeEnd,
-            'class_room' => isset($data['class_room']) ? (string) $data['class_room'] : '',
+            'class_room' => $classRoom,
             'session_id' => $sessionID,
             'branch_id' => $branchID,
             'break' => $isBreak ? 1 : 0,
@@ -128,6 +142,19 @@ class Timetable_model extends MY_Model
                 $timeStart = date("H:i:s", strtotime($value['time_start']));
                 $timeEnd = date("H:i:s", strtotime($value['time_end']));
                 $roomNumber = $value['class_room'];
+                $oldID = isset($data['old_id'][$key]) ? (int) $data['old_id'][$key] : 0;
+                if ($break && strtoupper(trim((string) $roomNumber)) === 'DIARY CHECK' && $oldID > 0) {
+                    $existingTeacher = $this->db->select('teacher_id')->get_where('timetable_class', array(
+                        'id' => $oldID,
+                        'class_id' => $classID,
+                        'section_id' => $sectionID,
+                        'branch_id' => $branchID,
+                        'session_id' => $sessionID,
+                    ))->row();
+                    if (!empty($existingTeacher)) {
+                        $teacherID = (int) $existingTeacher->teacher_id;
+                    }
+                }
                 if (!empty($timeStart) && !empty($timeEnd)) {
                     $arrayRoutine = array(
                         'class_id'      => $classID,
@@ -142,10 +169,10 @@ class Timetable_model extends MY_Model
                         'break'         => $break,
                         'day'           => $day,
                     );
-                    if ($data['old_id'][$key] == 0) {
+                    if ($oldID == 0) {
                         $this->db->insert('timetable_class', $arrayRoutine);
                     } else {
-                        $this->db->where('id', $data['old_id'][$key]);
+                        $this->db->where('id', $oldID);
                         $this->db->update('timetable_class', $arrayRoutine);
                     }
                 }

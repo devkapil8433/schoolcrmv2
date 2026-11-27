@@ -38,6 +38,9 @@ class MY_Controller extends CI_Controller
         $this->data['theme_config'] = $this->db->get_where('theme_settings', array('id' => 1))->row_array();
         date_default_timezone_set($get_config['timezone']);
 
+        // branch status + school subscription enforcement for every protected request
+        $this->load->library('access_guard');
+        $this->access_guard->run();
         // Jitendra Debugger (CI4-style toolbar) — localhost only, skip AJAX/JSON.
         $this->_maybe_enable_debug_toolbar();
     }

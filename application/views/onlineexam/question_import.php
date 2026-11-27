@@ -151,6 +151,20 @@
 		.qi-fields { grid-template-columns: 1fr; }
 	}
 	.qi-fields .form-group { margin-bottom: 0; }
+	.qi-lesson-hint {
+		display: block;
+		margin-top: 6px;
+		color: var(--qi-muted);
+		font-size: 11px;
+		line-height: 1.5;
+	}
+	.qi-lesson-hint code {
+		font-size: 10px;
+		background: var(--qi-soft);
+		border: 1px solid var(--qi-line);
+		border-radius: 4px;
+		padding: 0 4px;
+	}
 	.qi-fields .portal-label {
 		display: block;
 		margin-bottom: 6px;
@@ -286,10 +300,10 @@
 
 				<div class="qi-hero">
 					<h3>Bulk import questions from CSV</h3>
-					<p>Download the sample, keep the header row, then upload. One row = one question. All question types are supported.</p>
+					<p>Download the sample, fill in one question per row, keep the header row, and upload the CSV. Choose the target class, section, and subject before importing.</p>
 					<div class="qi-steps">
 						<div class="qi-step"><span>1</span> Download sample</div>
-						<div class="qi-step"><span>2</span> Choose class context</div>
+						<div class="qi-step"><span>2</span> Choose class, subject &amp; lesson</div>
 						<div class="qi-step"><span>3</span> Upload CSV &amp; import</div>
 					</div>
 				</div>
@@ -307,7 +321,7 @@
 							<div class="qi-sample">
 								<div>
 									<strong><i class="fas fa-file-arrow-down"></i> Sample import file</strong>
-									<span>Includes 1 dummy question for every type (11 rows).</span>
+									<span>Includes all 11 question types, lesson number, lesson, exercise, and explanation columns.</span>
 								</div>
 								<a class="btn-portal-primary btn-portal-sm" href="<?=base_url('onlineexam/csv_Sampledownloader')?>">
 									<i class="fas fa-download"></i> Download CSV
@@ -320,7 +334,7 @@
 									<label class="portal-label"><?php echo translate('branch');?> <span class="required">*</span></label>
 									<?php
 										$arrayBranch = $this->app_lib->getSelectList('branch');
-										echo form_dropdown("branch_id", $arrayBranch, set_value('branch_id'), "class='portal-input' onchange='getClassByBranch(this.value)'
+										echo form_dropdown("branch_id", $arrayBranch, set_value('branch_id', $branch_id), "class='portal-input' onchange='getClassByBranch(this.value)'
 										data-plugin-selectTwo data-width='100%'");
 									?>
 									<span class="error"><?=form_error('branch_id')?></span>
@@ -355,6 +369,17 @@
 										data-plugin-selectTwo data-width='100%' ");
 									?>
 									<span class="error"></span>
+								</div>
+
+								<div class="qi-field-full form-group">
+									<label class="portal-label"><?=translate('lesson')?></label>
+									<?php
+										$arrayLesson = array("" => translate('select') . ' (' . translate('lesson') . ')');
+										echo form_dropdown("lesson_id", $arrayLesson, set_value('lesson_id'), "class='portal-input' id='lesson_id'
+										data-plugin-selectTwo data-width='100%' ");
+									?>
+									<span class="error"></span>
+									<small class="qi-lesson-hint">Choose one lesson to attach every CSV row to it, or leave this blank and enter each row's Digital Diary lesson number in the <code>lesson_no</code> column. The sample leaves lesson fields blank so you can use the dropdown.</small>
 								</div>
 
 								<div class="qi-field-full form-group">
@@ -397,16 +422,20 @@
 
 							<ul class="qi-rules">
 								<li><i class="fas fa-check"></i><span><strong>Level:</strong> <code>easy</code>, <code>medium</code>, <code>hard</code></span></li>
-								<li><i class="fas fa-check"></i><span><strong>Exercise:</strong> use Exercise <strong>ID</strong> (not name)</span></li>
+								<li><i class="fas fa-check"></i><span><strong>Choose one lesson method:</strong> select a Lesson above to attach every sample row to it, or leave the dropdown blank and fill <code>lesson_no</code> for each row. If you also enter <code>lesson</code>, it must match that lesson.</span></li>
+								<li><i class="fas fa-check"></i><span><strong>Lesson number:</strong> when no lesson is selected above, enter the Lesson No. shown in Digital Diary for the selected class, section, and subject to place each row under its own lesson.</span></li>
+								<li><i class="fas fa-check"></i><span><strong>Lesson:</strong> optional extra check; enter the exact lesson name or lesson ID. If both Lesson No. and Lesson are filled, both must match the same lesson.</span></li>
+								<li><i class="fas fa-check"></i><span><strong>Exercise:</strong> optional; enter the exact exercise name or exercise ID for the selected class and subject. Leave blank if not applicable.</span></li>
 								<li><i class="fas fa-check"></i><span><strong>Single:</strong> answer <code>option_1</code> … <code>option_4</code></span></li>
 								<li><i class="fas fa-check"></i><span><strong>Multi:</strong> <code>["option_1","option_3"]</code></span></li>
 								<li><i class="fas fa-check"></i><span><strong>Match:</strong> options as <code>Left|Right</code>; answer <code>1-1,2-2,3-3,4-4</code></span></li>
-								<li><i class="fas fa-check"></i><span><strong>Text types:</strong> leave options empty; put model answer in answer column</span></li>
+								<li><i class="fas fa-check"></i><span><strong>Text types:</strong> leave options empty; put the model answer in the answer column.</span></li>
+								<li><i class="fas fa-check"></i><span><strong>Explanation:</strong> optional; add the answer explanation in the last column.</span></li>
 							</ul>
 
 							<div class="qi-note">
 								<i class="fas fa-lightbulb"></i>
-								Keep the first header row unchanged. Empty rows are ignored. Invalid type rows are skipped with a count in the result message.
+								The selected Branch, Class, Section, and Subject apply to every CSV row. Fill Lesson No. to place each question under a lesson, then choose its question type and exercise. Keep the sample header unchanged and save as CSV UTF-8. Blank rows are ignored; unmatched lesson/exercise values are skipped.
 							</div>
 						</div>
 					</div>
@@ -418,18 +447,62 @@
 </div>
 
 <script type="text/javascript">
+	var qiAllLessons = <?= json_encode(isset($all_lessons) ? $all_lessons : array()) ?>;
 	(function ($) {
-		$('#section_id').on('change', function () {
+		function qiRenderLessons() {
 			var classID = $('#class_id').val();
-			var sectionID = $(this).val();
+			var sectionID = $('#section_id').val();
+			var subjectID = $('#subject_id').val();
+			var $lesson = $('#lesson_id');
+			var key = (classID || '') + '|' + (sectionID || '') + '|' + (subjectID || '');
+			var list = qiAllLessons[key] || [];
+			var html = '<option value=""><?= translate('select') ?> (<?= translate('lesson') ?>)</option>';
+			if (!classID || !sectionID || !subjectID) {
+				html = '<option value="">Select subject first</option>';
+			} else if (list.length === 0) {
+				html = '<option value="">No lessons found for this subject</option>';
+			} else {
+				$.each(list, function (i, item) {
+					html += '<option value="' + item.id + '">' + $('<div>').text(item.label).html() + '</option>';
+				});
+			}
+			$lesson.html(html);
+			if ($lesson.hasClass('select2-hidden-accessible')) {
+				$lesson.trigger('change.select2');
+			}
+		}
+
+		function qiLoadSubjects() {
+			var classID = $('#class_id').val();
+			var sectionID = $('#section_id').val();
+			if (!classID || !sectionID) {
+				$('#subject_id').html('<option value="">Select class &amp; section first</option>').trigger('change');
+				qiRenderLessons();
+				return;
+			}
 			$.ajax({
 				url: base_url + 'subject/getByClassSection',
 				type: 'POST',
 				data: { classID: classID, sectionID: sectionID },
 				success: function (data) {
-					$('#subject_id').html(data).trigger('change');
+					$('#subject_id').html(data);
+					if ($('#subject_id').hasClass('select2-hidden-accessible')) {
+						$('#subject_id').trigger('change.select2');
+					}
+					qiRenderLessons();
 				}
 			});
+		}
+
+		$(document).on('change', '#section_id', qiLoadSubjects);
+		$(document).on('change', '#class_id', function () {
+			window.setTimeout(qiLoadSubjects, 400);
 		});
+		$(document).on('change', '#subject_id', qiRenderLessons);
+		if ($('#section_id').val()) {
+			qiLoadSubjects();
+		} else {
+			qiRenderLessons();
+		}
 	})(jQuery);
 </script>

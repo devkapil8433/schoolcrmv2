@@ -831,177 +831,159 @@ $total_paid = 0;
 $total_balance = 0;
 $total_amount = 0;
 
-// Use current fee system (student_fee_allocation + fee_collect), same as collect invoice
-$allocations = $this->fees_model->getStudentFeeDetails($student['enrollid'] ?? 0);
-$transportFees = [];
-if (!empty($student['stoppage_point_id']) && moduleIsEnabled('transport')) {
-	$transportFees = $this->fees_model->getStudentTransportFees($student['enrollid'], $student['stoppage_point_id']);
-}
-$salesBills = $salesBills ?? [];
+$allocations = $this->fees_model->getInvoiceDetails($student['enrollid'] ?? 0);
+$transportFees = $transport_fees ?? [];
+$salesBills    = $salesBills ?? [];
 
 $allMonths = [
-	4 => 'April', 5 => 'May', 6 => 'June', 7 => 'July', 8 => 'August',
-	9 => 'September', 10 => 'October', 11 => 'November', 12 => 'December',
-	1 => 'January', 2 => 'February', 3 => 'March'
+    4 => 'April', 5 => 'May', 6 => 'June', 7 => 'July', 8 => 'August',
+    9 => 'September', 10 => 'October', 11 => 'November', 12 => 'December',
+    1 => 'January', 2 => 'February', 3 => 'March'
 ];
 
 foreach ($allMonths as $monthNo => $monthName):
 
-	$monthPrinted = false;
+    $monthPrinted = false;
 
-	/* ---------------- GENERAL FEE ROWS ---------------- */
-	foreach ($allocations as $row):
-		$assignedMonths = array_filter(array_map('intval', explode(',', (string) ($row['month'] ?? ''))));
-		if (!in_array((int) $monthNo, $assignedMonths, true)) {
-			continue;
-		}
+    /* ---------------- GENERAL FEE ROWS ---------------- */
+    foreach ($allocations as $row):
 
-		if (!$monthPrinted) {
-			echo '<tr class="table-active">
-				<td colspan="9" class="fw-bold bg-light text-dark" style="font-size:17px;padding:7px 7px;">
-					' . $monthName . '
-				</td>
-			</tr>';
-			$monthPrinted = true;
-		}
+        $due_month = (int)date("n", strtotime($row['due_date']));
 
-		$empty_table++;
+        if ($due_month != $monthNo) continue;
 
-		$fee_amount    = (float) ($row['amount'] ?? 0);
-		$type_discount = (float) ($row['discount'] ?? 0);
-		$type_fine     = (float) ($row['fine'] ?? 0);
-		$type_paid     = (float) ($row['paid_amount'] ?? $row['paid'] ?? 0);
-		$balance       = (float) ($row['balance'] ?? max(0, $fee_amount - ($type_paid + $type_discount)));
-		if ($balance < 0) {
-			$balance = 0;
-		}
+        if (!$monthPrinted) {
+            echo '<tr class="table-active">
+                <td colspan="9" class="fw-bold bg-light text-dark" style="font-size:17px;padding:7px 7px;">
+                    <i class="fa me-1"></i> '.$monthName.'
+                </td>
+            </tr>';
+            $monthPrinted = true;
+        }
 
-		if ($type_paid == 0) {
-			$status = translate('unpaid');
-			$labelmode = 'label-danger-custom';
-		} elseif ($balance <= 0) {
-			$status = translate('total_paid');
-			$labelmode = 'label-success-custom';
-		} else {
-			$status = translate('partly_paid');
-			$labelmode = 'label-info-custom';
-		}
+        $empty_table++;
 
-		$total_amount   += $fee_amount;
-		$total_discount += $type_discount;
-		$total_fine     += $type_fine;
-		$total_paid     += $type_paid;
-		$total_balance  += $balance;
+        $deposit = $this->fees_model->getStudentFeeDeposit($row['allocation_id'], $row['fee_type_id']);
+        $fee_amount    = (float)$row['amount'];
+        $type_discount = (float)($deposit['total_discount'] ?? 0);
+        $type_fine     = (float)($deposit['total_fine'] ?? 0);
+        $type_paid     = (float)($deposit['total_amount'] ?? 0);
+        $balance       = $fee_amount - ($type_paid + $type_discount);
+
+        if ($type_paid == 0) {
+            $status = translate('unpaid');
+            $labelmode = 'label-danger-custom';
+        } elseif ($balance <= 0) {
+            $status = translate('total_paid');
+            $labelmode = 'label-success-custom';
+        } else {
+            $status = translate('partly_paid');
+            $labelmode = 'label-info-custom';
+        }
+
+        $total_amount  += $fee_amount;
+        $total_discount += $type_discount;
+        $total_fine    += $type_fine;
+        $total_paid    += $type_paid;
+        $total_balance += $balance;
 ?>
-		<tr>
-			<td><?= $count++; ?></td>
-			<td class="text-dark"><?= html_escape($row['fee_name'] ?? $row['name'] ?? ''); ?></td>
-			<td><?= _d($row['due_date'] ?? null); ?></td>
-			<td><span class="label <?= $labelmode ?>"><?= $status ?></span></td>
-			<td><?= currencyFormat($fee_amount); ?></td>
-			<td><?= currencyFormat($type_discount); ?></td>
-			<td><?= currencyFormat($type_fine); ?></td>
-			<td><?= currencyFormat($type_paid); ?></td>
-			<td><?= currencyFormat($balance); ?></td>
-		</tr>
+        <tr>
+            <td><?= $count++; ?></td>
+            <td class="text-dark"><?= html_escape($row['name']); ?></td>
+            <td><?= _d($row['due_date']); ?></td>
+            <td><span class="label <?= $labelmode ?>"><?= $status ?></span></td>
+            <td><?= currencyFormat($fee_amount); ?></td>
+            <td><?= currencyFormat($type_discount); ?></td>
+            <td><?= currencyFormat($type_fine); ?></td>
+            <td><?= currencyFormat($type_paid); ?></td>
+            <td><?= currencyFormat($balance); ?></td>
+        </tr>
 <?php
-	endforeach;
+    endforeach;
 
-	/* ---------------- TRANSPORT FEE ROWS ---------------- */
-	foreach ($transportFees as $t):
-		if ((int) $t->month != $monthNo) {
-			continue;
-		}
 
-		if (!$monthPrinted) {
-			echo '<tr class="table-active">
-				<td colspan="9" class="fw-bold bg-light text-dark" style="font-size:17px;padding:7px 7px;">
-					' . $monthName . '
-				</td>
-			</tr>';
-			$monthPrinted = true;
-		}
+    /* ---------------- TRANSPORT FEE ROWS ---------------- */
+    foreach ($transportFees as $t):
 
-		$empty_table++;
+        if ((int)$t->month != $monthNo) continue;
 
-		$tfDeposit   = $this->fees_model->getStudentTransportFeeDeposit($t->id);
-		$tf_amount   = (float) $t->route_fare;
-		$tf_discount = !empty($tfDeposit) ? (float) $tfDeposit['total_discount'] : 0;
-		$tf_fine     = !empty($tfDeposit) ? (float) $tfDeposit['total_fine'] : 0;
-		$tf_paid     = !empty($tfDeposit) ? (float) $tfDeposit['total_amount'] : 0;
-		$tf_balance  = max(0, $tf_amount - $tf_paid - $tf_discount);
-		$monthLabel  = $this->app_lib->getMonthslist($t->month);
+        if (!$monthPrinted) {
+            echo '<tr class="table-active">
+                <td colspan="9" class="fw-bold bg-light text-dark" style="font-size:17px;padding:7px 7px;">
+                    <i class="fa me-1"></i> '.$monthName.'
+                </td>
+            </tr>';
+            $monthPrinted = true;
+        }
 
-		if ($tf_paid == 0) {
-			$status = translate('unpaid');
-			$labelmode = 'label-danger-custom';
-		} elseif ($tf_balance <= 0) {
-			$status = translate('total_paid');
-			$labelmode = 'label-success-custom';
-		} else {
-			$status = translate('partly_paid');
-			$labelmode = 'label-info-custom';
-		}
+        $empty_table++;
 
-		$total_amount   += $tf_amount;
-		$total_discount += $tf_discount;
-		$total_fine     += $tf_fine;
-		$total_paid     += $tf_paid;
-		$total_balance  += $tf_balance;
+        $tf_amount = $t->route_fare;
+        $tf_discount = 0;
+        $tf_fine = 0;
+        $tf_paid = 0;
+        $tf_balance = $tf_amount;
+
+        $status = translate('unpaid');
+        $labelmode = 'label-danger-custom';
+
+        $total_amount  += $tf_amount;
+        $total_balance += $tf_balance;
 ?>
-		<tr>
-			<td><?= $count++; ?></td>
-			<td class="text-dark"><?= translate('transport_fees') . (!empty($monthLabel) ? ' - ' . $monthLabel : ''); ?></td>
-			<td><?= _d($t->due_date); ?></td>
-			<td><span class="label <?= $labelmode ?>"><?= $status ?></span></td>
-			<td><?= currencyFormat($tf_amount); ?></td>
-			<td><?= currencyFormat($tf_discount); ?></td>
-			<td><?= currencyFormat($tf_fine); ?></td>
-			<td><?= currencyFormat($tf_paid); ?></td>
-			<td><?= currencyFormat($tf_balance); ?></td>
-		</tr>
+        <tr>
+            <td><?= $count++; ?></td>
+            <td class="text-dark">Transport Fee</td>
+            <td><?= _d($t->due_date); ?></td>
+            <td><span class="label <?= $labelmode ?>"><?= $status ?></span></td>
+            <td><?= currencyFormat($tf_amount); ?></td>
+            <td><?= currencyFormat(0); ?></td>
+            <td><?= currencyFormat(0); ?></td>
+            <td><?= currencyFormat(0); ?></td>
+            <td><?= currencyFormat($tf_balance); ?></td>
+        </tr>
 <?php
-	endforeach;
+    endforeach;
 
-	/* ---------------- BOOK / SALES BILL ROWS ---------------- */
-	foreach ($salesBills as $bill):
-		$billMonth = (int) date('n', strtotime($bill->date));
-		if ($billMonth != $monthNo) {
-			continue;
-		}
 
-		if (!$monthPrinted) {
-			echo '<tr class="table-active">
-				<td colspan="9" class="fw-bold bg-light text-dark" style="font-size:17px;padding:7px 7px;">
-					' . $monthName . '
-				</td>
-			</tr>';
-			$monthPrinted = true;
-		}
+    /* ---------------- BOOK / SALES BILL ROWS ---------------- */
+    foreach ($salesBills as $bill):
 
-		$empty_table++;
+        $billMonth = (int)date("n", strtotime($bill->date));
 
-		$billStatus = $bill->payment_status == 1 ? 'Paid' : 'Unpaid';
-		$billLabel  = $bill->payment_status == 1 ? 'label-success-custom' : 'label-danger-custom';
+        if ($billMonth != $monthNo) continue;
+
+        if (!$monthPrinted) {
+            echo '<tr class="table-active">
+                <td colspan="9" class="fw-bold bg-light text-dark" style="font-size:17px;padding:7px 7px;">
+                    <i class="fa me-1"></i> '.$monthName.'
+                </td>
+            </tr>';
+            $monthPrinted = true;
+        }
+
+        $empty_table++;
+
+        $billStatus = $bill->payment_status == 1 ? 'Paid' : 'Unpaid';
+        $billLabel  = $bill->payment_status == 1 ? 'label-success-custom' : 'label-danger-custom';
 ?>
-		<tr>
-			<td><?= $count++; ?></td>
-			<td class="text-dark">Books / Sales Bill - <?= html_escape($bill->bill_no) ?></td>
-			<td><?= _d($bill->date); ?></td>
-			<td><span class="label <?= $billLabel ?>"><?= $billStatus ?></span></td>
-			<td><?= currencyFormat($bill->total); ?></td>
-			<td><?= currencyFormat($bill->discount); ?></td>
-			<td><?= currencyFormat(0); ?></td>
-			<td><?= currencyFormat($bill->paid); ?></td>
-			<td><?= currencyFormat($bill->due); ?></td>
-		</tr>
+        <tr>
+            <td><?= $count++; ?></td>
+            <td class="text-dark">Books / Sales Bill - <?= $bill->bill_no ?></td>
+            <td><?= _d($bill->date); ?></td>
+            <td><span class="label <?= $billLabel ?>"><?= $billStatus ?></span></td>
+            <td><?= currencyFormat($bill->total); ?></td>
+            <td><?= currencyFormat($bill->discount); ?></td>
+            <td><?= currencyFormat(0); ?></td>
+            <td><?= currencyFormat($bill->paid); ?></td>
+            <td><?= currencyFormat($bill->due); ?></td>
+        </tr>
 <?php
-	endforeach;
+    endforeach;
 
 endforeach;
 
 if (empty($empty_table)) {
-	echo '<tr><td colspan="9"><h5 class="text-danger text-center">' . translate('no_information_available') . '</h5></td></tr>';
+    echo '<tr><td colspan="9"><h5 class="text-danger text-center">' . translate('no_information_available') . '</h5></td></tr>';
 }
 ?>
 </tbody>

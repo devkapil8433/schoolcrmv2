@@ -355,8 +355,10 @@ class Onlineexam_model extends MY_Model
         $this->db->where('branch_id', $branch_id);
         $this->db->where('class_id', (int) $class_id);
         $this->db->where('subject_id', (int) $subject_id);
-        $this->db->order_by('name', 'asc');
         $result = $this->db->get('exercise')->result();
+        usort($result, function ($left, $right) {
+            return strnatcasecmp((string) $left->name, (string) $right->name);
+        });
         foreach ($result as $row) {
             $array[$row->id] = $row->name;
         }
@@ -403,7 +405,6 @@ class Onlineexam_model extends MY_Model
         $this->db->group_by('qg.id');
         $this->db->order_by('c.name', 'ASC');
         $this->db->order_by('subj.name', 'ASC');
-        $this->db->order_by('qg.name', 'ASC');
         $rows = $this->db->get()->result_array();
 
         $flow = array();
@@ -441,6 +442,12 @@ class Onlineexam_model extends MY_Model
         }
 
         foreach ($flow as &$classNode) {
+            foreach ($classNode['subjects'] as &$subjectNode) {
+                usort($subjectNode['exercises'], function ($left, $right) {
+                    return strnatcasecmp((string) $left['name'], (string) $right['name']);
+                });
+            }
+            unset($subjectNode);
             $classNode['subjects'] = array_values($classNode['subjects']);
         }
         unset($classNode);
@@ -1102,7 +1109,7 @@ class Onlineexam_model extends MY_Model
 
     /**
      * Nested question-bank flow for the expandable question index.
-     * Class/section -> subject -> lesson -> exercise -> questions.
+     * Class/section -> subject -> lesson -> question type -> exercise -> questions.
      */
     public function getQuestionFlowByBranch($branchID)
     {
@@ -1114,9 +1121,9 @@ class Onlineexam_model extends MY_Model
             && $this->db->table_exists('digital_diary_lesson');
         $hasCustomType = $this->db->field_exists('custom_question_type', 'questions');
 
-        $select = 'q.id, q.class_id, q.section_id, q.subject_id, q.question, q.type,
+        $select = 'q.id, q.class_id, q.section_id, q.subject_id, q.exercise_id, q.question, q.type,
             c.name as class_name, s.name as section_name, subj.name as subject_name,
-            subj.subject_type as subject_group';
+            subj.subject_type as subject_group, exercise.name as exercise_name';
         if ($hasCustomType) {
             $select .= ', q.custom_question_type';
         }
@@ -1129,6 +1136,7 @@ class Onlineexam_model extends MY_Model
         $this->db->join('class c', 'c.id = q.class_id', 'left');
         $this->db->join('section s', 's.id = q.section_id', 'left');
         $this->db->join('subject subj', 'subj.id = q.subject_id', 'left');
+        $this->db->join('exercise', 'exercise.id = q.exercise_id', 'left');
         if ($hasLesson) {
             $this->db->join('digital_diary_lesson ddl', 'ddl.id = q.lesson_id', 'left');
         }
@@ -1198,6 +1206,16 @@ class Onlineexam_model extends MY_Model
                 $flow[$classKey]['subjects'][$subjectKey]['lessons'][$lessonId]['question_types'][$typeId] = array(
                     'type_id' => $typeId,
                     'type_name' => $typeLabel,
+                    'question_count' => 0,
+                    'exercises' => array(),
+                );
+            }
+            $exerciseId = !empty($row['exercise_id']) ? (int) $row['exercise_id'] : 0;
+            if (!isset($flow[$classKey]['subjects'][$subjectKey]['lessons'][$lessonId]['question_types'][$typeId]['exercises'][$exerciseId])) {
+                $flow[$classKey]['subjects'][$subjectKey]['lessons'][$lessonId]['question_types'][$typeId]['exercises'][$exerciseId] = array(
+                    'exercise_id' => $exerciseId,
+                    'exercise_name' => $exerciseId > 0 && !empty($row['exercise_name']) ? $row['exercise_name'] : translate('other'),
+                    'question_count' => 0,
                     'questions' => array(),
                 );
             }
@@ -1215,7 +1233,9 @@ class Onlineexam_model extends MY_Model
             $flow[$classKey]['subjects'][$subjectKey]['type_counts'][$typeId]++;
             $flow[$classKey]['subjects'][$subjectKey]['lessons'][$lessonId]['type_counts'][$typeId]++;
 
-            $flow[$classKey]['subjects'][$subjectKey]['lessons'][$lessonId]['question_types'][$typeId]['questions'][] = $row;
+            $flow[$classKey]['subjects'][$subjectKey]['lessons'][$lessonId]['question_types'][$typeId]['exercises'][$exerciseId]['questions'][] = $row;
+            $flow[$classKey]['subjects'][$subjectKey]['lessons'][$lessonId]['question_types'][$typeId]['exercises'][$exerciseId]['question_count']++;
+            $flow[$classKey]['subjects'][$subjectKey]['lessons'][$lessonId]['question_types'][$typeId]['question_count']++;
             $flow[$classKey]['subjects'][$subjectKey]['lessons'][$lessonId]['question_count']++;
             $flow[$classKey]['subjects'][$subjectKey]['question_count']++;
             $flow[$classKey]['question_count']++;
@@ -1224,6 +1244,10 @@ class Onlineexam_model extends MY_Model
         foreach ($flow as &$classSection) {
             foreach ($classSection['subjects'] as &$subject) {
                 foreach ($subject['lessons'] as &$lesson) {
+                    foreach ($lesson['question_types'] as &$questionType) {
+                        $questionType['exercises'] = array_values($questionType['exercises']);
+                    }
+                    unset($questionType);
                     ksort($lesson['question_types'], SORT_NUMERIC);
                     $lesson['question_types'] = array_values($lesson['question_types']);
                 }
@@ -2056,8 +2080,11 @@ class Onlineexam_model extends MY_Model
         $this->db->where('questions.section_id', $sectionId);
         $this->db->where('questions.subject_id', $subjectId);
         $this->db->group_by('exercise.id');
-        $this->db->order_by('exercise.name', 'asc');
-        return $this->db->get()->result_array();
+        $rows = $this->db->get()->result_array();
+        usort($rows, function ($left, $right) {
+            return strnatcasecmp((string) $left['name'], (string) $right['name']);
+        });
+        return $rows;
     }
 
     /**
@@ -2100,9 +2127,15 @@ class Onlineexam_model extends MY_Model
                 $this->db->where('questions.created_by', get_loggedin_user_id());
             }
         }
-        $this->db->order_by('exercise.name', 'ASC');
-        $this->db->order_by('questions.id', 'DESC');
-        return $this->db->get()->result_array();
+        $rows = $this->db->get()->result_array();
+        usort($rows, function ($left, $right) {
+            $exerciseOrder = strnatcasecmp((string) $left['exercise_name'], (string) $right['exercise_name']);
+            if ($exerciseOrder !== 0) {
+                return $exerciseOrder;
+            }
+            return (int) $right['id'] - (int) $left['id'];
+        });
+        return $rows;
     }
 
     /**

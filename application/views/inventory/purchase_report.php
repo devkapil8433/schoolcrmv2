@@ -78,7 +78,6 @@
 					<th><?php echo translate('sl'); ?></th>
 					<th><?php echo translate('bill_no'); ?></th>
 					<th><?php echo translate('supplier'); ?></th>
-					<th><?php echo translate('store'); ?></th>
 					<th><?php echo translate('purchase') . " " . translate('status'); ?></th>
 					<th><?php echo translate('payment') . " " . translate('status'); ?></th>
 					<th><?php echo translate('date'); ?></th>
@@ -104,7 +103,6 @@
 					<td><?php echo $count++; ?></td>
 					<td><?php echo html_escape($row['bill_no']); ?></td>
 					<td><?php echo html_escape($row['supplier_name']); ?></td>
-					<td><?php echo html_escape($row['store_name']); ?></td>
 					<td>
 						<?php
 							$status_list = array(
@@ -141,7 +139,6 @@
 			</tbody>
 			<tfoot>
 				<tr>
-					<th></th>
 					<th></th>
 					<th></th>
 					<th></th>

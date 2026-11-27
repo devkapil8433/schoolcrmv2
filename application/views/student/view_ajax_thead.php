@@ -8,11 +8,13 @@
 ?>
 <thead>
 	<tr>
+<?php if (!is_teacher_loggedin()) { ?>
 		<th width="10" class="no-sort no-export">
 			<div class="checkbox-replace">
 				<label class="i-checks"><input type="checkbox" id="selectAllchkbox"><i></i></label>
 			</div>
 		</th>
+<?php } ?>
 <?php if ($validArr['student_photo']) { ?>
 		<th class="no-sort"><?=translate('photo')?></th>
 <?php } ?>
@@ -38,6 +40,8 @@
 		<th><?=$fields['field_label']?></th>
 	<?php } } ?>
 		<th class="no-sort no-export"><?=translate('fees_progress')?></th>
+<?php if (!is_teacher_loggedin()) { ?>
 		<th><?=translate('action')?></th>
+<?php } ?>
 	</tr>
 </thead>

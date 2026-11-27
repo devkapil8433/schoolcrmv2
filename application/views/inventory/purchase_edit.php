@@ -25,17 +25,6 @@
 							</div>
 						</div>
 						<div class="form-group">
-							<label class="col-md-3 control-label"><?php echo translate('store'); ?> <span class="required">*</span></label>
-							<div class="col-md-6">
-								<?php
-									$storelist = $this->app_lib->getSelectByBranch('product_store', $branch_id);
-									echo form_dropdown("store_id", $storelist, $purchaselist['store_id'], "class='form-control' data-plugin-selectTwo id='storeID'
-									data-width='100%' ");
-								?>
-								<span class="error"></span>
-							</div>
-						</div>
-						<div class="form-group">
 							<label class="col-md-3 control-label"><?php echo translate('bill_no'); ?> <span class="required">*</span></label>
 							<div class="col-md-6">
 								<input type="text" class="form-control" name="bill_no" id='bill_no' value="<?php echo html_escape($purchaselist['bill_no']); ?>" />

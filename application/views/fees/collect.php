@@ -92,6 +92,112 @@
 		color: #8a94a6;
 	}
 
+	#studentPaymentReceipts {
+		margin-bottom: 0;
+		border: 1px solid #e4e7ec;
+		border-radius: 8px;
+		overflow: hidden;
+	}
+
+	#studentPaymentReceipts thead th {
+		background: #f6f8fb;
+		color: #475467;
+		font-size: 12px;
+		white-space: nowrap;
+		border-bottom: 1px solid #e4e7ec;
+	}
+
+	#studentPaymentReceipts tbody td {
+		vertical-align: middle;
+	}
+
+	.receipt-action-group {
+		display: inline-flex;
+		gap: 4px;
+	}
+
+	.receipt-correction-amount {
+		max-width: 150px;
+	}
+
+	.invoice-summary--cards {
+		margin: 0 0 18px;
+		padding: 0;
+		border: 0;
+		background: transparent;
+	}
+
+	.invoice-summary--cards .amounts {
+		display: grid;
+		grid-template-columns: repeat(4, minmax(0, 1fr));
+		gap: 12px;
+	}
+
+	.invoice-summary--cards .amounts li {
+		position: relative;
+		min-width: 0;
+		overflow: hidden;
+		padding: 15px 16px 16px 19px;
+		border: 1px solid transparent;
+		border-radius: 12px;
+		box-shadow: 0 4px 14px rgba(16, 24, 40, .06);
+		white-space: normal;
+	}
+
+	.invoice-summary--cards .amounts li::before {
+		position: absolute;
+		top: 0;
+		bottom: 0;
+		left: 0;
+		width: 5px;
+		content: "";
+		background: currentColor;
+		opacity: .85;
+	}
+
+	.invoice-summary--cards .amounts li strong {
+		display: flex;
+		align-items: center;
+		gap: 7px;
+		margin-bottom: 8px;
+		font-size: 11px;
+		letter-spacing: .06em;
+		color: inherit;
+		opacity: .82;
+	}
+
+	.invoice-summary--cards .amounts li span {
+		display: block;
+		font-size: 22px;
+		font-weight: 750;
+		line-height: 1.2;
+		color: #172033;
+	}
+
+	.invoice-summary--cards .summary-total {
+		color: #1d4ed8;
+		border-color: #bfdbfe !important;
+		background: linear-gradient(135deg, #eff6ff, #dbeafe) !important;
+	}
+
+	.invoice-summary--cards .summary-paid {
+		color: #047857;
+		border-color: #a7f3d0 !important;
+		background: linear-gradient(135deg, #ecfdf5, #d1fae5) !important;
+	}
+
+	.invoice-summary--cards .summary-fine {
+		color: #b45309;
+		border-color: #fde68a !important;
+		background: linear-gradient(135deg, #fffbeb, #fef3c7) !important;
+	}
+
+	.invoice-summary--cards .summary-balance {
+		color: #b91c1c;
+		border-color: #fecaca !important;
+		background: linear-gradient(135deg, #fff1f2, #ffe4e6) !important;
+	}
+
 	#invoiceSummary {
 		font-size: 13px;
 		min-width: 1100px;
@@ -303,6 +409,10 @@
 		.fees-student-meta {
 			grid-template-columns: repeat(2, minmax(0, 1fr));
 		}
+
+		.invoice-summary--cards .amounts {
+			grid-template-columns: repeat(2, minmax(0, 1fr));
+		}
 	}
 
 	@media (max-width: 640px) {
@@ -313,6 +423,10 @@
 
 		.fees-student-meta {
 			grid-template-columns: 1fr;
+		}
+
+		.invoice-summary--cards .amounts li span {
+			font-size: 19px;
 		}
 	}
 
@@ -356,21 +470,9 @@ if ($extINTL == true) {
 			<li class="active">
 				<a href="#invoice" data-toggle="tab"><i class="far fa-credit-card"></i> <?= translate('invoice') ?></a>
 			</li>
-			<?php if ($invoice['status'] != 'unpaid'): ?>
-				<li>
-					<a href="#history" data-toggle="tab"><i class="fas fa-dollar-sign"></i> <?= translate('payment_history') ?></a>
-				</li>
-			<?php endif; ?>
-			<?php if (get_permission('collect_fees', 'is_add') && $invoice['status'] != 'total'): ?>
-				<li>
-					<a href="#collect_fees" data-toggle="tab"><i class="fas fa-hand-holding-usd"></i> <?= translate('collect_fees') ?></a>
-				</li>
-			<?php endif; ?>
-			<?php if (get_permission('collect_fees', 'is_add') && $invoice['status'] != 'total'): ?>
-				<li>
-					<a href="#fully_paid" data-toggle="tab"><i class="far fa-credit-card"></i> Fully Paid</a>
-				</li>
-			<?php endif; ?>
+			<li>
+				<a href="#history" data-toggle="tab"><i class="fas fa-dollar-sign"></i> <?= translate('payment_history') ?></a>
+			</li>
 		</ul>
 		<div class="tab-content">
 			<div id="invoice" class="tab-pane <?= empty($this->session->flashdata('pay_tab')) ? 'active' : ''; ?>">
@@ -384,7 +486,7 @@ if ($extINTL == true) {
 									</div>
 								</div>
 								<div class="col-md-6 text-right">
-									<h4 class="mt-none mb-none text-dark">Invoice No #<?= $invoice['invoice_no'] ?></h4>
+									<h4 class="mt-none mb-none text-dark">Fee Account Ref: <?= html_escape($invoice['invoice_no']) ?></h4>
 									<p class="mb-none">
 										<span class="text-dark"><?= translate('date') ?> : </span>
 										<span class="value"><?= _d(date('Y-m-d')) ?></span>
@@ -985,19 +1087,24 @@ if ($extINTL == true) {
 
 
 
-						<div class="invoice-summary mt-lg hidden-print">
+						<div class="invoice-summary invoice-summary--cards mt-lg hidden-print" id="invoiceTotalsSummary">
 							<ul class="amounts">
-								<li><strong><?= translate('grand_total') ?></strong><?= currencyFormat($total_amount + $total_fine - $total_discount); ?></li>
-								<li><strong><?= translate('paid') ?></strong><?= currencyFormat($total_paid); ?></li>
-								<?php if ($total_discount > 0): ?>
-									<li class="summary-discount"><strong><?= translate('discount') ?></strong><?= currencyFormat($total_discount); ?></li>
-								<?php endif; ?>
-								<li><strong><?= translate('fine') ?></strong><?= currencyFormat($total_fine); ?></li>
-								<?php if ($total_balance != 0): ?>
-									<li><strong><?= translate('balance') ?></strong><?= currencyFormat($total_balance); ?></li>
-								<?php else: ?>
-									<li><strong><?= translate('total_paid') ?> (<?= translate('with_fine') ?>)</strong><?= currencyFormat($total_paid); ?></li>
-								<?php endif; ?>
+								<li class="summary-total">
+									<strong><i class="fas fa-wallet"></i> <?= translate('grand_total') ?></strong>
+									<span><?= currencyFormat($total_amount + $total_fine - $total_discount); ?></span>
+								</li>
+								<li class="summary-paid">
+									<strong><i class="fas fa-check-circle"></i> <?= translate('paid') ?> / Submitted</strong>
+									<span><?= currencyFormat($total_paid); ?></span>
+								</li>
+								<li class="summary-fine">
+									<strong><i class="fas fa-exclamation-triangle"></i> <?= translate('fine') ?></strong>
+									<span><?= currencyFormat($total_fine); ?></span>
+								</li>
+								<li class="summary-balance">
+									<strong><i class="fas fa-hourglass-half"></i> <?= translate('balance') ?></strong>
+									<span><?= currencyFormat($total_balance); ?></span>
+								</li>
 							</ul>
 						</div>
 						<div class="invoice-summary text-right mt-lg visible-print-block" id="invDetailsPrint"></div>
@@ -1007,7 +1114,6 @@ if ($extINTL == true) {
 					</div>
 				</div>
 			</div>
-			<?php if ($invoice['status'] != 'unpaid'): ?>
 				<div class="tab-pane" id="history">
 					<div id="payment_print">
 						<div class="invoice payment">
@@ -1019,7 +1125,7 @@ if ($extINTL == true) {
 										</div>
 									</div>
 									<div class="col-md-6 text-right">
-										<h4 class="mt-none mb-none text-dark">Invoice No #<?php echo $invoice['invoice_no'] ?></h4>
+										<h4 class="mt-none mb-none text-dark">Fee Account Ref: <?= html_escape($invoice['invoice_no']) ?></h4>
 										<p class="mb-none">
 											<span class="text-dark"><?= translate('date') ?> : </span>
 											<span class="value"><?php echo _d(date('Y-m-d')); ?></span>
@@ -1077,6 +1183,118 @@ if ($extINTL == true) {
 									</div>
 								</div>
 							</div>
+							<div class="fees-invoice-toolbar hidden-print">
+								<div>
+									<label for="receiptPageSize">Paper size</label>
+									<select id="receiptPageSize" class="form-control input-sm" style="display:inline-block;width:110px;margin-left:6px">
+										<option value="A4" selected>A4</option>
+										<option value="A5">A5</option>
+										<option value="Letter">Letter</option>
+										<option value="Legal">Legal</option>
+									</select>
+								</div>
+								<button type="button" class="btn btn-default btn-sm" id="printAllReceipts" <?= empty($payment_receipts) ? 'disabled' : '' ?>>
+									<i class="fas fa-print"></i> Print all receipts
+								</button>
+								<button type="button" class="btn btn-default btn-sm" id="printSelectedReceipts">
+									<i class="fas fa-print"></i> Print selected receipts
+								</button>
+							</div>
+							<div class="table-responsive">
+								<table class="table table-hover table-bordered" id="studentPaymentReceipts">
+									<thead>
+										<tr>
+											<th class="hidden-print"><input type="checkbox" id="selectAllReceipts" aria-label="Select all receipts"></th>
+											<th>Receipt No.</th>
+											<th><?= translate('date') ?></th>
+											<th>Fee details</th>
+											<th><?= translate('method') ?></th>
+											<th class="text-right"><?= translate('amount') ?></th>
+											<th class="text-right"><?= translate('discount') ?></th>
+											<th class="text-right"><?= translate('fine') ?></th>
+											<th class="text-right">Received</th>
+											<th>Status</th>
+											<th class="hidden-print">Actions</th>
+										</tr>
+									</thead>
+									<tbody>
+										<?php foreach ($payment_receipts as $receipt): ?>
+											<?php
+											$receiptMessage = (!empty($receipt['is_reversed']) ? 'VOID - reversed fee receipt ' : 'Fee receipt ') . $receipt['receipt_label']
+												. ' | Student: ' . trim(($basic['first_name'] ?? '') . ' ' . ($basic['last_name'] ?? ''))
+												. ' | Class: ' . trim(($basic['class_name'] ?? '') . ' ' . ($basic['section_name'] ?? ''))
+												. ' | Date: ' . _d($receipt['date'])
+												. ' | Amount: ' . currencyFormat($receipt['total_amount'])
+												. ' | Discount: ' . currencyFormat($receipt['total_discount'])
+												. ' | Fine: ' . currencyFormat($receipt['total_fine'])
+												. ' | Received: ' . currencyFormat($receipt['total_paid'] + $receipt['total_fine']);
+											$receiptFeeNames = array();
+											foreach ($receipt['items'] as $receiptItem) {
+												$feeName = trim((string) $receiptItem['name']);
+												$feeNameKey = strtolower(preg_replace('/\s+/', ' ', $feeName));
+												if ($feeName !== '' && !isset($receiptFeeNames[$feeNameKey])) {
+													$receiptFeeNames[$feeNameKey] = $feeName;
+												}
+											}
+											$whatsAppNumber = preg_replace('/\D+/', '', (string) ($basic['guardian_mobileno'] ?? ''));
+											if ($whatsAppNumber === '') {
+												$whatsAppNumber = preg_replace('/\D+/', '', (string) ($basic['mobileno'] ?? ''));
+											}
+											if (strlen($whatsAppNumber) === 10) {
+												$whatsAppNumber = '91' . $whatsAppNumber;
+											}
+											$correctionItems = array();
+											foreach ($receipt['items'] as $receiptItem) {
+												$correctionItems[] = array(
+													'id' => (int) $receiptItem['id'],
+													'name' => $receiptItem['name'],
+													'amount' => number_format((float) $receiptItem['amount'], 2, '.', ''),
+												);
+											}
+											?>
+											<tr>
+												<td class="hidden-print"><input type="checkbox" class="receipt-select" value="<?= html_escape($receipt['receipt_key']) ?>"></td>
+												<td><strong><?= html_escape($receipt['receipt_label']) ?></strong></td>
+												<td><?= html_escape(_d($receipt['date'])) ?></td>
+												<td>
+													<?php foreach (array_values($receiptFeeNames) as $itemIndex => $feeName): ?>
+														<?= $itemIndex > 0 ? '<br>' : '' ?><?= html_escape($feeName) ?>
+													<?php endforeach; ?>
+												</td>
+												<td><?= html_escape($receipt['payment_method'] ?: '—') ?></td>
+												<td class="text-right"><?= currencyFormat($receipt['total_amount']) ?></td>
+												<td class="text-right"><?= currencyFormat($receipt['total_discount']) ?></td>
+												<td class="text-right"><?= currencyFormat($receipt['total_fine']) ?></td>
+												<td class="text-right"><strong><?= currencyFormat($receipt['total_paid'] + $receipt['total_fine']) ?></strong></td>
+												<td>
+													<?php if (!empty($receipt['is_reversed'])): ?>
+														<span class="label label-danger" title="<?= html_escape($receipt['reversal_reason']) ?>">Reversed</span>
+													<?php else: ?>
+														<span class="label label-success">Paid</span>
+													<?php endif; ?>
+												</td>
+												<td class="hidden-print text-nowrap">
+													<button type="button" class="btn btn-xs btn-default print-one-receipt" data-receipt-key="<?= html_escape($receipt['receipt_key']) ?>" title="Print receipt"><i class="fas fa-print"></i></button>
+													<?php if ($whatsAppNumber !== ''): ?>
+														<a class="btn btn-xs btn-success" target="_blank" rel="noopener" href="https://wa.me/<?= html_escape($whatsAppNumber) ?>?text=<?= rawurlencode($receiptMessage) ?>" title="Send receipt details to parent on WhatsApp" aria-label="Send receipt details to parent on WhatsApp"><i class="fab fa-whatsapp"></i></a>
+													<?php endif; ?>
+													<?php if (get_permission('fees_revert', 'is_delete') && !empty($receipt['can_correct'])): ?>
+														<button type="button" class="btn btn-xs btn-info correct-fee-receipt" data-receipt-no="<?= (int) preg_replace('/\D+/', '', $receipt['receipt_key']) ?>" data-items="<?= html_escape(json_encode($correctionItems)) ?>" title="Correct amount and issue a replacement receipt"><i class="fas fa-edit"></i></button>
+													<?php endif; ?>
+													<?php if (get_permission('fees_revert', 'is_delete') && !empty($receipt['can_reverse'])): ?>
+														<button type="button" class="btn btn-xs btn-warning reverse-fee-receipt" data-receipt-no="<?= (int) preg_replace('/\D+/', '', $receipt['receipt_key']) ?>" title="Reverse this receipt"><i class="fas fa-undo"></i></button>
+													<?php endif; ?>
+												</td>
+											</tr>
+										<?php endforeach; ?>
+										<?php if (empty($payment_receipts)): ?>
+											<tr><td colspan="11" class="text-center text-muted">No payment receipts have been recorded for this student.</td></tr>
+										<?php endif; ?>
+									</tbody>
+								</table>
+							</div>
+							<p class="text-muted hidden-print">WhatsApp opens a pre-filled receipt summary for the parent/guardian. To send the receipt as a PDF, print/save it first and attach it in WhatsApp.</p>
+							<?php if (false): ?>
 							<?php if (get_permission('fees_revert', 'is_delete')): ?>
 								<button type="button" class="btn btn-default btn-sm mb-sm hidden-print" id="selected_revert" data-loading-text="<i class='fas fa-spinner fa-spin'></i> Processing">
 									<i class="fas fa-trash-restore-alt"></i> <?php echo translate('selected_revert'); ?>
@@ -1210,14 +1428,12 @@ if ($extINTL == true) {
 							</div>
 							<div class="invoice-summary text-right mt-lg visible-print-block" id="invPaymentHistory"></div>
 						</div>
-						<div class="text-right mr-lg hidden-print">
-							<button id="payReceiptPrint" class="btn btn-default mr-xs" data-loading-text="<i class='fas fa-spinner fa-spin'></i> Processing"><i class="fas fa-print"></i> Selected Pay Receipt</button>
-							<button id="paymentPrint" class="btn btn-default" data-loading-text="<i class='fas fa-spinner fa-spin'></i> Processing"><i class="fas fa-print"></i> <?= translate('print') ?></button>
-						</div>
+							<?php endif; ?>
 					</div>
 				</div>
-			<?php endif; ?>
 
+			<?php if (false): ?>
+			<!-- Legacy standalone collection tabs are intentionally disabled. -->
 			<!-- add fees form -->
 			<?php if ($invoice['status'] != 'total'): ?>
 				<div id="collect_fees" class="tab-pane">
@@ -1386,9 +1602,42 @@ if ($extINTL == true) {
 					<?php echo form_close(); ?>
 				</div>
 			<?php endif; ?>
+			<?php endif; ?>
 		</div>
 	</div>
 </section>
+
+<div class="modal fade" id="receiptCorrectionModal" tabindex="-1" role="dialog" aria-labelledby="receiptCorrectionTitle">
+	<div class="modal-dialog" role="document">
+		<div class="modal-content">
+			<?php echo form_open('fees/correct_receipt', array('id' => 'receiptCorrectionForm')); ?>
+			<div class="modal-header">
+				<button type="button" class="close" data-dismiss="modal" aria-label="Close"><span aria-hidden="true">&times;</span></button>
+				<h4 class="modal-title" id="receiptCorrectionTitle">Correct receipt amount</h4>
+			</div>
+			<div class="modal-body">
+				<input type="hidden" name="enroll_id" value="<?= (int) $basic['enroll_id'] ?>">
+				<input type="hidden" name="receipt_no" id="correctionReceiptNo">
+				<p class="text-muted">Enter the correct gross amount for each item. The original receipt will remain in history as reversed, and a replacement receipt will be issued.</p>
+				<div class="table-responsive">
+					<table class="table table-bordered">
+						<thead><tr><th>Fee item</th><th class="text-right">Correct amount</th></tr></thead>
+						<tbody id="receiptCorrectionItems"></tbody>
+					</table>
+				</div>
+				<div class="form-group">
+					<label for="receiptCorrectionReason">Correction reason <span class="required">*</span></label>
+					<textarea class="form-control" name="reason" id="receiptCorrectionReason" rows="3" maxlength="500" required></textarea>
+				</div>
+			</div>
+			<div class="modal-footer">
+				<button type="button" class="btn btn-default" data-dismiss="modal">Cancel</button>
+				<button type="submit" class="btn btn-primary" id="submitReceiptCorrection">Correct and reissue</button>
+			</div>
+			<?php echo form_close(); ?>
+		</div>
+	</div>
+</div>
 
 <div class="zoom-anim-dialog modal-block mfp-hide modal-block-full" id="modal">
 	<section class="panel">
@@ -1424,6 +1673,140 @@ if ($extINTL == true) {
 	var studentID = "<?= $basic['enroll_id']; ?>";
 
 	$(document).ready(function() {
+		var $invoiceSummary = $('#invoiceTotalsSummary');
+		if ($invoiceSummary.length) {
+			$invoiceSummary.insertBefore($('.fees-invoice-toolbar').first());
+		}
+
+		function submitReceiptPrint(receiptKeys) {
+			if (!receiptKeys.length) {
+				popupMsg("Select at least one receipt to print.", "error");
+				return;
+			}
+			var $form = $('<form>', {
+				method: 'post',
+				action: base_url + 'fees/receipt_print',
+				target: '_blank'
+			});
+			$form.append($('<input>', { type: 'hidden', name: 'enroll_id', value: studentID }));
+			$form.append($('<input>', {
+				type: 'hidden',
+				name: '<?= $this->security->get_csrf_token_name(); ?>',
+				value: '<?= $this->security->get_csrf_hash(); ?>'
+			}));
+			$form.append($('<input>', {
+				type: 'hidden',
+				name: 'page_size',
+				value: $('#receiptPageSize').val() || 'A4'
+			}));
+			receiptKeys.forEach(function(key) {
+				$form.append($('<input>', { type: 'hidden', name: 'receipt_keys[]', value: key }));
+			});
+			$('body').append($form);
+			$form.trigger('submit');
+			$form.remove();
+		}
+
+		$('#selectAllReceipts').on('change', function() {
+			$('.receipt-select').prop('checked', this.checked);
+		});
+		$('.receipt-select').on('change', function() {
+			$('#selectAllReceipts').prop(
+				'checked',
+				$('.receipt-select').length > 0 && $('.receipt-select:not(:checked)').length === 0
+			);
+		});
+		$('#printSelectedReceipts').on('click', function() {
+			submitReceiptPrint($('.receipt-select:checked').map(function() {
+				return this.value;
+			}).get());
+		});
+		$('#printAllReceipts').on('click', function() {
+			submitReceiptPrint($('.receipt-select').map(function() {
+				return this.value;
+			}).get());
+		});
+		$(document).on('click', '.print-one-receipt', function() {
+			submitReceiptPrint([$(this).data('receipt-key')]);
+		});
+		$(document).on('click', '.reverse-fee-receipt', function() {
+			var receiptNo = $(this).data('receipt-no');
+			var reason = window.prompt('Enter the reason for reversing receipt RCP-' + receiptNo + '. The original receipt will remain in history.');
+			if (reason === null || !reason.trim()) {
+				return;
+			}
+			$.ajax({
+				url: base_url + 'fees/reverse_receipt',
+				type: 'POST',
+				dataType: 'json',
+				data: {
+					enroll_id: studentID,
+					receipt_no: receiptNo,
+					reason: reason.trim(),
+					'<?= $this->security->get_csrf_token_name(); ?>': '<?= $this->security->get_csrf_hash(); ?>'
+				},
+				success: function(response) {
+					popupMsg(response.message || 'Receipt reversal completed.', response.status === 'success' ? 'success' : 'error');
+					if (response.status === 'success') {
+						window.location.reload();
+					}
+				},
+				error: function() {
+					popupMsg('The receipt could not be reversed. No changes should be assumed.', 'error');
+				}
+			});
+		});
+		$(document).on('click', '.correct-fee-receipt', function() {
+			var items;
+			try {
+				items = JSON.parse($(this).attr('data-items') || '[]');
+			} catch (error) {
+				popupMsg('Receipt items could not be loaded. Refresh the page and try again.', 'error');
+				return;
+			}
+			var $items = $('#receiptCorrectionItems').empty();
+			items.forEach(function(item) {
+				var $row = $('<tr>');
+				$row.append($('<td>').text(item.name));
+				var $amount = $('<input>', {
+					type: 'number',
+					name: 'corrected_amounts[' + item.id + ']',
+					class: 'form-control input-sm receipt-correction-amount',
+					min: '0.01',
+					step: '0.01',
+					required: true,
+					value: item.amount
+				});
+				$row.append($('<td>').append($amount));
+				$items.append($row);
+			});
+			$('#correctionReceiptNo').val($(this).data('receipt-no'));
+			$('#receiptCorrectionReason').val('');
+			$('#receiptCorrectionModal').modal('show');
+		});
+		$('#receiptCorrectionForm').on('submit', function(event) {
+			event.preventDefault();
+			var $button = $('#submitReceiptCorrection').prop('disabled', true);
+			$.ajax({
+				url: base_url + 'fees/correct_receipt',
+				type: 'POST',
+				dataType: 'json',
+				data: $(this).serialize(),
+				success: function(response) {
+					popupMsg(response.message || 'Receipt correction completed.', response.status === 'success' ? 'success' : 'error');
+					if (response.status === 'success') {
+						$('#receiptCorrectionModal').modal('hide');
+						window.location.reload();
+					}
+				},
+				error: function() {
+					popupMsg('The receipt could not be corrected. No changes should be assumed.', 'error');
+				},
+				complete: function() {
+					$button.prop('disabled', false);
+				}
+			});
+		});
 		function setMonthOpen(monthNo, isOpen) {
 			var $monthRow = $("#invoiceSummary tr.month-row[data-month='" + monthNo + "']");
 			var $feeRows = $("#invoiceSummary tr.fee-row[data-month='" + monthNo + "']");
@@ -1588,139 +1971,6 @@ if ($extINTL == true) {
 				complete: function() {
 					fn_printElem('invoice_print');
 					$btn.button('reset');
-				}
-			});
-		});
-
-		// --- Payment History Print ---
-		$('#paymentPrint').on('click', function() {
-			var $btn = $(this);
-			$btn.button('loading');
-			var arrayData = [];
-
-			$("#paymentHistory tbody input[name='cb_feePay']:checked").each(function() {
-				arrayData.push({
-					payment_id: $(this).val()
-				});
-			});
-
-			if (arrayData.length === 0) {
-				popupMsg("<?= translate('no_row_are_selected') ?>", "error");
-				$btn.button('reset');
-				return;
-			}
-
-			$("#invPaymentHistory").html("");
-			$.ajax({
-				url: base_url + "fees/printFeesPaymentHistory",
-				type: 'POST',
-				data: {
-					data: JSON.stringify(arrayData)
-				},
-				dataType: "html",
-				cache: false,
-				success: function(response) {
-					$("#invPaymentHistory").html(response);
-				},
-				complete: function() {
-					fn_printElem('payment_print');
-					$btn.button('reset');
-				}
-			});
-		});
-
-		// --- Pay Receipt Print ---
-		$('#payReceiptPrint').on('click', function() {
-			var $btn = $(this);
-			$btn.button('loading');
-			var arrayData = [];
-
-			$("#paymentHistory tbody input[name='cb_feePay']:checked").each(function() {
-				arrayData.push({
-					payment_id: $(this).val(),
-					allocationID: $(this).data("allocation-id"),
-					feeTypeID: $(this).data("fee-type-id")
-				});
-			});
-
-			if (arrayData.length === 0) {
-				alert("No Rows Selected.");
-				$btn.button('reset');
-				return;
-			}
-
-			$("#invDetailsPrint").html("");
-			$.ajax({
-				url: base_url + "fees/payReceiptPrint",
-				type: 'POST',
-				data: {
-					student_id: studentID,
-					data: JSON.stringify(arrayData)
-				},
-				dataType: "html",
-				cache: false,
-				success: function(response) {
-					fn_printElem(response, true);
-				},
-				complete: function() {
-					$btn.button('reset');
-				}
-			});
-		});
-
-		// --- Selected Revert ---
-		$('#selected_revert').on('click', function() {
-			var $this = $(this);
-			var paymentID = [];
-			$("#paymentHistory tbody input[name='cb_feePay']:checked").each(function() {
-				paymentID.push($(this).val());
-			});
-
-			if (paymentID.length === 0) {
-				alert("No payment selected.");
-				return;
-			}
-
-			swal({
-				title: "<?= translate('are_you_sure') ?>",
-				text: "<?= translate('delete_this_information') ?>",
-				type: "warning",
-				showCancelButton: true,
-				confirmButtonClass: "btn btn-default swal2-btn-default",
-				cancelButtonClass: "btn btn-default swal2-btn-default",
-				confirmButtonText: "<?= translate('yes_continue') ?>",
-				cancelButtonText: "<?= translate('cancel') ?>",
-				buttonsStyling: false,
-				footer: "<?= translate('deleted_note') ?>"
-			}).then((result) => {
-				if (result.value) {
-					$.ajax({
-						url: base_url + 'fees/paymentRevert',
-						type: "POST",
-						data: {
-							id: paymentID
-						},
-						dataType: "JSON",
-						beforeSend: function() {
-							$this.button('loading');
-						},
-						success: function(data) {
-							swal({
-								title: "<?= translate('deleted') ?>",
-								text: data.message,
-								buttonsStyling: false,
-								showCloseButton: true,
-								focusConfirm: false,
-								confirmButtonClass: "btn btn-default swal2-btn-default",
-								type: data.status
-							}).then(() => {
-								location.reload();
-							});
-						},
-						complete: function() {
-							$this.button('reset');
-						}
-					});
 				}
 			});
 		});

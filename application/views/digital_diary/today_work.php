@@ -5,6 +5,9 @@ $filter_class_id = isset($filter_class_id) ? (int) $filter_class_id : 0;
 $filter_section_id = isset($filter_section_id) ? (int) $filter_section_id : 0;
 $filter_subject_id = isset($filter_subject_id) ? (int) $filter_subject_id : 0;
 $filter_subject_group = isset($filter_subject_group) ? $filter_subject_group : '';
+$period_scoped = !empty($period_scoped);
+$timetable_id = isset($timetable_id) ? (int) $timetable_id : 0;
+$is_class_teacher_for_section = !empty($is_class_teacher_for_section);
 $class_options = isset($class_options) ? $class_options : array('' => translate('select'));
 $section_options = isset($section_options) ? $section_options : array('' => translate('select_class_first'));
 $subject_group_options = isset($subject_group_options) ? $subject_group_options : array('' => translate('all'));
@@ -28,7 +31,7 @@ $today_work_table_ok = $this->db->table_exists('digital_diary_today_work');
 			<div class="panel-body">
 				<?php if (!empty($filter_class_id) && !empty($filter_section_id)): ?>
 				<div class="alert alert-success mb-md">
-					<strong>Step 2 of 2:</strong> Student Work Report is done for this day. Now add class work / home work / learning for each subject.
+					<strong>Step 2 of 2:</strong> Student Work Report is done for this day. Now add class work / home work / learning<?= $period_scoped ? ' for your assigned subject.' : ' for each subject.' ?>
 				</div>
 				<?php else: ?>
 				<div class="alert alert-info mb-md">
@@ -79,30 +82,38 @@ $today_work_table_ok = $this->db->table_exists('digital_diary_today_work');
 					<?php if (!empty($branch_id)): ?>
 					<input type="hidden" name="branch_id" id="filter_branch_id" value="<?= (int) $branch_id ?>">
 					<?php endif; ?>
+					<?php if ($period_scoped): ?>
+					<input type="hidden" name="timetable_id" value="<?= (int) $timetable_id ?>">
+					<?php endif; ?>
 					<div class="row mb-md">
 						<div class="col-md-2">
 							<label><?= translate('date') ?></label>
-							<input type="text" class="form-control" name="date" id="date" value="<?= html_escape($today_date) ?>" data-plugin-datepicker data-plugin-options='{"format":"yyyy-mm-dd"}'>
+							<input type="text" class="form-control" name="date" id="date" value="<?= html_escape($today_date) ?>" <?= $period_scoped ? 'readonly' : 'data-plugin-datepicker data-plugin-options=\'{"format":"yyyy-mm-dd"}\'' ?>>
 						</div>
 						<div class="col-md-2">
 							<label><?= translate('class') ?></label>
-							<?= form_dropdown('class_id', $class_options, $filter_class_id, "class='form-control' id='class_id' onchange='getSectionByClass(this.value,0)' data-plugin-selectTwo data-width='100%'") ?>
+							<?= form_dropdown($period_scoped ? '' : 'class_id', $class_options, $filter_class_id, "class='form-control' id='class_id' onchange='getSectionByClass(this.value,0)' data-plugin-selectTwo data-width='100%'" . ($period_scoped ? ' disabled' : '')) ?>
+							<?php if ($period_scoped): ?><input type="hidden" name="class_id" value="<?= (int) $filter_class_id ?>"><?php endif; ?>
 						</div>
 						<div class="col-md-2">
 							<label><?= translate('section') ?></label>
-							<?= form_dropdown('section_id', $section_options, $filter_section_id, "class='form-control' id='section_id' data-plugin-selectTwo data-width='100%'") ?>
+							<?= form_dropdown($period_scoped ? '' : 'section_id', $section_options, $filter_section_id, "class='form-control' id='section_id' data-plugin-selectTwo data-width='100%'" . ($period_scoped ? ' disabled' : '')) ?>
+							<?php if ($period_scoped): ?><input type="hidden" name="section_id" value="<?= (int) $filter_section_id ?>"><?php endif; ?>
 						</div>
-						<div class="col-md-2">
+						<div class="col-md-2" <?= $period_scoped ? 'style="display:none;"' : '' ?>>
 							<label>Subject Group</label>
 							<?= form_dropdown('subject_group', $subject_group_options, $filter_subject_group, "class='form-control' id='subject_group' data-plugin-selectTwo data-width='100%'") ?>
 						</div>
-						<div class="col-md-2">
+						<div class="col-md-2" <?= $period_scoped ? 'style="display:none;"' : '' ?>>
 							<label><?= translate('subject') ?></label>
-							<select name="subject_id" id="subject_id" class="form-control" data-plugin-selectTwo data-width="100%">
+							<select name="subject_id" id="subject_id" class="form-control" data-plugin-selectTwo data-width="100%" <?= $period_scoped ? 'style="display:none;"' : '' ?>>
 								<option value=""><?= translate('all') ?></option>
 							</select>
 						</div>
 					</div>
+					<?php if ($period_scoped): ?>
+					<p class="text-muted">Period locked to <?= html_escape(get_type_name_by_id('class', $filter_class_id)) ?> — <?= html_escape(get_type_name_by_id('section', $filter_section_id)) ?>, <?= html_escape(get_type_name_by_id('subject', $filter_subject_id)) ?>.</p>
+					<?php endif; ?>
 					<?php echo form_close(); ?>
 					<?php endif; ?>
 
@@ -111,6 +122,9 @@ $today_work_table_ok = $this->db->table_exists('digital_diary_today_work');
 						<input type="hidden" name="work_date" id="tw_work_date" value="<?= html_escape($today_date) ?>">
 						<input type="hidden" name="class_id" id="tw_class_id" value="<?= (int) $filter_class_id ?>">
 						<input type="hidden" name="section_id" id="tw_section_id" value="<?= (int) $filter_section_id ?>">
+						<?php if ($period_scoped): ?>
+						<input type="hidden" name="timetable_id" value="<?= (int) $timetable_id ?>">
+						<?php endif; ?>
 						<input type="hidden" name="filter_subject_id" value="<?= (int) $filter_subject_id ?>">
 						<input type="hidden" name="filter_subject_group" value="<?= html_escape($filter_subject_group) ?>">
 						<?php if (is_superadmin_loggedin()): ?>
@@ -310,6 +324,19 @@ $today_work_table_ok = $this->db->table_exists('digital_diary_today_work');
 												<button type="button" class="btn btn-default btn-xs tw-edit-row" data-subject="<?= (int) $row['subject_id'] ?>" title="<?= translate('edit') ?>">
 													<i class="fas fa-pencil-alt"></i> <?= translate('edit') ?>
 												</button>
+													<?php if ($is_class_teacher_for_section && !empty($row['today_work_id'])): ?>
+												<?php echo form_open(base_url('digital_diary/today_work_delete'), array('class' => 'frm-submit-data tw-delete-form', 'onsubmit' => "return confirm('Delete this work, its assigned questions, and linked student submissions?')")); ?>
+												<input type="hidden" name="work_id" value="<?= (int) $row['today_work_id'] ?>">
+												<input type="hidden" name="work_date" value="<?= html_escape($today_date) ?>">
+												<input type="hidden" name="class_id" value="<?= (int) $filter_class_id ?>">
+												<input type="hidden" name="section_id" value="<?= (int) $filter_section_id ?>">
+												<input type="hidden" name="subject_id" value="<?= (int) $row['subject_id'] ?>">
+												<?php if (is_superadmin_loggedin()): ?>
+												<input type="hidden" name="branch_id" value="<?= (int) $branch_id ?>">
+												<?php endif; ?>
+												<button type="submit" class="btn btn-danger btn-xs"><i class="fas fa-trash"></i> Delete</button>
+												<?php echo form_close(); ?>
+													<?php endif; ?>
 													<?php else: ?>
 												<button type="button" class="btn btn-success btn-xs tw-add-row" data-subject="<?= (int) $row['subject_id'] ?>" title="<?= translate('add') ?>">
 													<i class="fas fa-plus"></i> <?= translate('add') ?>
@@ -335,9 +362,21 @@ $today_work_table_ok = $this->db->table_exists('digital_diary_today_work');
 					if (!empty($branch_id)) {
 						$swr_q['branch_id'] = (int) $branch_id;
 					}
+					if ($period_scoped) {
+						$swr_q['subject_id'] = (int) $filter_subject_id;
+						$swr_q['timetable_id'] = (int) $timetable_id;
+					}
 					$swr_url = base_url('digital_diary/student_work_report_entry') . '?' . http_build_query($swr_q);
+					$timetable_q = array('date' => $today_date);
+					if (!empty($branch_id)) {
+						$timetable_q['branch_id'] = (int) $branch_id;
+					}
+					$timetable_url = base_url('digital_diary/student_work_report_entry') . '?' . http_build_query($timetable_q);
 					?>
 					<div class="text-right mt-md">
+						<?php if (is_teacher_loggedin()): ?>
+						<a href="<?= html_escape($timetable_url) ?>" class="btn btn-primary"><i class="fas fa-calendar-alt"></i> My timetable</a>
+						<?php endif; ?>
 						<?php if ($is_today_work_day_final): ?>
 						<a href="<?= html_escape($swr_url) ?>" class="btn btn-default"><i class="fas fa-eye"></i> View Step 1: Student Work Report</a>
 						<?php else: ?>

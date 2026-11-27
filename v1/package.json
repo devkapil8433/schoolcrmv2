@@ -1,0 +1,13 @@
+{
+  "name": "edschool",
+  "private": true,
+  "scripts": {
+    "build:portal": "tailwindcss -i ./assets/student-portal/src/input.css -o ./assets/student-portal/css/portal.css --minify",
+    "watch:portal": "tailwindcss -i ./assets/student-portal/src/input.css -o ./assets/student-portal/css/portal.css --watch"
+  },
+  "devDependencies": {
+    "@tailwindcss/forms": "^0.5.9",
+    "@tailwindcss/typography": "^0.5.15",
+    "tailwindcss": "^3.4.17"
+  }
+}

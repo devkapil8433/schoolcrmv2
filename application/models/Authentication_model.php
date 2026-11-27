@@ -182,12 +182,112 @@ class Authentication_model extends MY_Model
         return $get;
     }
 
+    // session keys that belong to one signed-in account
+    private $accountKeys = array(
+        'name', 'logger_photo', 'loggedin_branch', 'loggedin_email', 'loggedin_id', 'loggedin_userid',
+        'loggedin_role_id', 'loggedin_type', 'set_lang', 'is_rtl', 'set_session_id', 'loggedin',
+        'student_id', 'enrollID', 'myChildren_id', 'impersonate_backup',
+    );
+
     function sessionSet($sessionData = [])
     {
         $this->session->set_userdata($sessionData);
         $this->db->update('login_credential', array('last_login' => date('Y-m-d H:i:s')), array('id' => $sessionData['loggedin_id']));
         // login Log details save in DB here
         $this->loginLog($sessionData['loggedin_userid'], $sessionData['loggedin_role_id'], $sessionData['loggedin_branch']);
+    }
+
+    // sign in an account while keeping any already signed-in account available in the switcher
+    public function activateAccount($sessionData, $extra = array())
+    {
+        $newID = $sessionData['loggedin_id'];
+        if ($this->session->userdata('loggedin') && $this->session->userdata('loggedin_id') != $newID) {
+            $this->stashCurrentAccount();
+            $this->session->unset_userdata('redirect_url');
+        }
+        $linked = $this->getLinkedAccounts();
+        unset($linked[$newID]);
+        $this->session->set_userdata('linked_accounts', $linked);
+        $this->session->unset_userdata($this->accountKeys);
+        if (!empty($extra)) {
+            $this->session->set_userdata($extra);
+        }
+        $this->sessionSet($sessionData);
+    }
+
+    public function getLinkedAccounts()
+    {
+        $linked = $this->session->userdata('linked_accounts');
+        return is_array($linked) ? $linked : array();
+    }
+
+    // keep the current account in the session so we can come back to it without a password
+    public function stashCurrentAccount()
+    {
+        if (!$this->session->userdata('loggedin')) {
+            return;
+        }
+        $snapshot = array();
+        foreach ($this->accountKeys as $key) {
+            if ($this->session->has_userdata($key)) {
+                $snapshot[$key] = $this->session->userdata($key);
+            }
+        }
+        $role = $this->db->select('name')->where('id', $snapshot['loggedin_role_id'])->get('roles')->row();
+        $linked = $this->getLinkedAccounts();
+        $linked[$snapshot['loggedin_id']] = array(
+            'name' => isset($snapshot['name']) ? $snapshot['name'] : '',
+            'role' => empty($role) ? '' : $role->name,
+            'photo' => isset($snapshot['logger_photo']) ? $snapshot['logger_photo'] : '',
+            'type' => isset($snapshot['loggedin_type']) ? $snapshot['loggedin_type'] : 'staff',
+            'data' => $snapshot,
+        );
+        $this->session->set_userdata('linked_accounts', $linked);
+    }
+
+    private function restoreLinkedAccount($loginID)
+    {
+        $linked = $this->getLinkedAccounts();
+        if (!isset($linked[$loginID])) {
+            return false;
+        }
+        $entry = $linked[$loginID];
+        unset($linked[$loginID]);
+        $this->session->set_userdata('linked_accounts', $linked);
+        // the account may have been disabled or removed since it was signed in
+        $credential = $this->db->select('id')->get_where('login_credential', array('id' => $loginID, 'active' => 1))->row();
+        if (empty($credential)) {
+            return false;
+        }
+        $this->session->unset_userdata($this->accountKeys);
+        $this->session->set_userdata($entry['data']);
+        return true;
+    }
+
+    public function switchAccount($loginID)
+    {
+        $linked = $this->getLinkedAccounts();
+        if (!isset($linked[$loginID]) || $loginID == $this->session->userdata('loggedin_id')) {
+            return false;
+        }
+        $this->stashCurrentAccount();
+        if ($this->restoreLinkedAccount($loginID)) {
+            return true;
+        }
+        // restore the account we came from
+        $this->restoreLinkedAccount($this->session->userdata('loggedin_id'));
+        return false;
+    }
+
+    // used on logout: drop the current account and continue with the next signed-in one
+    public function activateNextLinkedAccount()
+    {
+        foreach (array_keys($this->getLinkedAccounts()) as $loginID) {
+            if ($this->restoreLinkedAccount($loginID)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     function loginLog($userID = 0, $role = 0, $branchID = '')

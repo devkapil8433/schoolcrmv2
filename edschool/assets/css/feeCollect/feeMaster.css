@@ -1,0 +1,107 @@
+body {
+  /* font-family: 'Segoe UI', sans-serif; */
+  background: #f4f4f4;
+  /* margin: 20px; */
+}
+
+.fees-page {
+  /* display: flex; */
+  gap: 20px;
+  flex-wrap: wrap;
+}
+
+.fees-card {
+  background: #fff;
+  padding: 20px;
+  border-radius: 8px;
+  flex: 1;
+  margin-top:5px;
+  /* min-width: 320px; */
+  /* max-width: 670px; */
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.add-fees {
+  max-width: 500px;
+}
+
+.fees-card h2 {
+  font-size: 20px;
+  margin-bottom: 15px;
+  border-bottom: 1px solid #eee;
+  padding-bottom: 10px;
+}
+
+.form-group {
+  margin-bottom: 15px;
+}
+
+.form-group label {
+  font-weight: 500;
+  display: block;
+  margin-bottom: 5px;
+}
+
+.required {
+  color: red;
+}
+
+input[type="text"],
+input[type="number"],
+input[type="date"],
+select {
+  width: 100%;
+  padding: 8px;
+  font-size: 15px;
+  border: 1px solid #ccc;
+  border-radius: 5px;
+}
+
+.radio-group label {
+  margin-right: 15px;
+}
+
+.split-inputs {
+  display: flex;
+  gap: 10px;
+}
+
+.split-inputs > div {
+  flex: 1;
+}
+
+.save-btn {
+  background: #34495e;
+  color: #fff;
+  border: none;
+  padding: 10px 20px;
+  margin-top:5px;
+  font-size: 15px;
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+.search-input {
+  width: 100%;
+  padding: 8px;
+  margin-bottom: 15px;
+  font-size: 15px;
+  border: 1px solid #ccc;
+  border-radius: 5px;
+}
+
+.fees-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.fees-table th,
+.fees-table td {
+  text-align: left;
+  padding: 10px;
+  border-bottom: 1px solid #eee;
+}
+
+.fees-table td:last-child {
+  white-space: nowrap;
+}

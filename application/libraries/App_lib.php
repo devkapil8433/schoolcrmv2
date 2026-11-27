@@ -624,4 +624,58 @@ class App_lib
             return false;
         }
     }
+
+    public function get_class_teacher_sections($branchID = '', $sessionID = '')
+    {
+        if (!is_teacher_loggedin()) {
+            return array();
+        }
+        if (empty($branchID)) {
+            $branchID = get_loggedin_branch_id();
+        }
+        if (empty($sessionID)) {
+            $sessionID = get_session_id();
+        }
+
+        $this->CI->db->select('ta.class_id, ta.section_id');
+        $this->CI->db->from('teacher_allocation as ta');
+        $this->CI->db->join('class as c', 'c.id = ta.class_id', 'inner');
+        $this->CI->db->where('ta.teacher_id', (int) get_loggedin_user_id());
+        $this->CI->db->where('ta.session_id', (int) $sessionID);
+        $this->CI->db->where('c.branch_id', (int) $branchID);
+        $this->CI->db->group_by(array('ta.class_id', 'ta.section_id'));
+
+        $classSections = array();
+        foreach ($this->CI->db->get()->result_array() as $row) {
+            $classID = (int) $row['class_id'];
+            $sectionID = (int) $row['section_id'];
+            if (!isset($classSections[$classID])) {
+                $classSections[$classID] = array();
+            }
+            $classSections[$classID][] = $sectionID;
+        }
+        return $classSections;
+    }
+
+    public function get_class_teacher_class_options($branchID = '', $sessionID = '')
+    {
+        $options = array('' => translate('select'));
+        foreach ($this->get_class_teacher_sections($branchID, $sessionID) as $classID => $sections) {
+            $options[(int) $classID] = get_type_name_by_id('class', (int) $classID);
+        }
+        return $options;
+    }
+
+    public function get_class_teacher_section_options($classID = '', $branchID = '', $sessionID = '')
+    {
+        if (empty($classID)) {
+            return array('' => translate('select_class_first'));
+        }
+        $options = array('' => translate('select'));
+        $classSections = $this->get_class_teacher_sections($branchID, $sessionID);
+        foreach (isset($classSections[(int) $classID]) ? $classSections[(int) $classID] : array() as $sectionID) {
+            $options[(int) $sectionID] = get_type_name_by_id('section', (int) $sectionID);
+        }
+        return $options;
+    }
 }

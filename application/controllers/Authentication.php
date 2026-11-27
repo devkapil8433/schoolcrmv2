@@ -11,9 +11,11 @@ class Authentication extends Authentication_Controller
     /* email is okey lets check the password now */
     public function index($url_alias = '')
     {
-        if (is_loggedin()) {
+        // an already logged in user may open this page to add one more account
+        if (is_loggedin() && !$_POST && !$this->input->get('add_account')) {
             redirect(base_url('dashboard'));
         }
+        $loginUrl = is_loggedin() ? base_url('authentication?add_account=1') : base_url('authentication');
 
         if ($_POST) {
             $rules = array(
@@ -32,20 +34,38 @@ class Authentication extends Authentication_Controller
             if ($this->form_validation->run() !== false) {
                 $email = $this->input->post('email');
                 $password = $this->input->post('password');
+                $login_role = $this->input->post('login_role');
+                if (!empty($login_role)) {
+                    $this->session->set_flashdata('login_role', $login_role);
+                }
                 // username is okey lets check the password now
                 $login_credential = $this->authentication_model->login_credential($email, $password);
                 if ($login_credential) {
+                    // Super Admin (platform owner) and every other account use separate login tabs
+                    if (!empty($login_role)) {
+                        if ($login_credential->role == 1 && $login_role !== 'superadmin') {
+                            set_alert('error', 'This is a Super Admin account. Please login from the Super Admin tab.');
+                            redirect($loginUrl);
+                            exit();
+                        }
+                        if ($login_credential->role != 1 && $login_role === 'superadmin') {
+                            set_alert('error', 'The Super Admin tab is only for the platform Super Admin. Please use the Admin tab or your own role tab.');
+                            redirect($loginUrl);
+                            exit();
+                        }
+                    }
                     if ($login_credential->active) {
                         $getUser = $this->authentication_model->getUserNameByRoleID($login_credential->role, $login_credential->user_id);
                         $getConfig = $this->db->select('translation,session_id')->get_where('global_settings', array('id' => 1))->row();
                         $language = $getConfig->translation;
                         $sessionID = $getConfig->session_id;
+                        $extraSession = array();
                         if($this->app_lib->isExistingAddon('saas')) {
                             if ($login_credential->role != 1) {
                                 $schoolSettings = $this->db->select('id,translation')->where(array('id' => $getUser['branch_id'], 'status' => 1))->get('branch')->row();
                                 if (empty($schoolSettings)) {
                                     set_alert('error', translate('inactive_school'));
-                                    redirect(base_url('authentication'));
+                                    redirect($loginUrl);
                                     exit();
                                 }
                             }
@@ -60,25 +80,25 @@ class Authentication extends Authentication_Controller
                             $getParentLoginStatus = $this->authentication_model->getParentLoginStatus($getUser['branch_id']);
                             if ($getParentLoginStatus == 0) {
                                 set_alert('error', translate('parent_login_has_been_disabled'));
-                                redirect(base_url('authentication'));
+                                redirect($loginUrl);
                                 exit();
                             }
                         } elseif($login_credential->role == 7) {
                             $studentID = $getUser['id'];
-                            $this->session->set_userdata('student_id', $studentID);
+                            $extraSession['student_id'] = $studentID;
                             // check student login status
                             $getStudentLoginStatus = $this->authentication_model->getStudentLoginStatus($getUser['branch_id']);
                             if ($getStudentLoginStatus == 0) {
                                 set_alert('error', translate('student_login_has_been_disabled'));
-                                redirect(base_url('authentication'));
+                                redirect($loginUrl);
                                 exit();
                             }
                             $studentSession = $this->application_model->getEnrollID($studentID, $sessionID);
                             if (is_array($studentSession)) {
-                                $this->session->set_userdata('enrollID', $studentSession['id']);
+                                $extraSession['enrollID'] = $studentSession['id'];
                                 $sessionID = $studentSession['session_id'];
                             } else {
-                                $this->session->set_userdata('enrollID', $studentSession);
+                                $extraSession['enrollID'] = $studentSession;
                             }
                             $userType = 'student';
                         } else {
@@ -106,13 +126,16 @@ class Authentication extends Authentication_Controller
                             $this->load->model('two_fa_model');
                             $manage_2FA = $this->two_fa_model->manage_2fa($sessionData, $login_credential, $getUser['email']);
                             if ($manage_2FA) {
+                                if (!empty($extraSession)) {
+                                    $this->session->set_userdata($extraSession);
+                                }
                                 $this->session->set_userdata('2FA', $sessionData);
                                 redirect(base_url($this->authentication_model->getSegment(1) . 'two_fa_verification'));
                             } else {
-                                $this->authentication_model->sessionSet($sessionData);
+                                $this->authentication_model->activateAccount($sessionData, $extraSession);
                             }
                         } else {
-                            $this->authentication_model->sessionSet($sessionData);
+                            $this->authentication_model->activateAccount($sessionData, $extraSession);
                         }
                         
                         // is logged in
@@ -123,11 +146,11 @@ class Authentication extends Authentication_Controller
                         }
                     } else {
                         set_alert('error', translate('inactive_account'));
-                        redirect(base_url('authentication'));
+                        redirect($loginUrl);
                     }
                 } else {
                     set_alert('error', translate('username_password_incorrect'));
-                    redirect(base_url('authentication'));
+                    redirect($loginUrl);
                 }
             }
         }
@@ -268,6 +291,19 @@ class Authentication extends Authentication_Controller
         redirect(base_url($returnPath));
     }
 
+    /* switch between the accounts that are signed in on this browser */
+    public function switch_account($loginID = '')
+    {
+        if (!is_loggedin()) {
+            redirect(base_url('authentication'));
+        }
+        if ($this->authentication_model->switchAccount((int) $loginID)) {
+            redirect(base_url('dashboard'));
+        }
+        set_alert('error', translate('access_denied'));
+        redirect(base_url('dashboard'));
+    }
+
     /* session logout */
     public function logout()
     {
@@ -279,6 +315,11 @@ class Authentication extends Authentication_Controller
             }
             unset($backup['_impersonate_return']);
             $this->session->set_userdata($backup);
+        }
+        // other accounts are still signed in: continue with the next one
+        if (!$this->input->get('all') && $this->authentication_model->activateNextLinkedAccount()) {
+            set_alert('success', translate('account_logged_out_switched_to_next'));
+            redirect(base_url('dashboard'));
         }
         $webURL = base_url();
         if (!is_superadmin_loggedin()) {

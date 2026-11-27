@@ -1,0 +1,28 @@
+  .custom-card-table {
+    background: #fff;
+    border-radius: 8px;
+    padding: 20px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  }
+
+  .custom-card-table h5 {
+    font-size: 18px;
+    font-weight: 600;
+    margin-bottom: 16px;
+  }
+
+  #datatable {
+    width: 100% !important;
+    border-collapse: collapse;
+  }
+
+  #datatable thead {
+    background-color: #f7f7f7;
+  }
+
+  #datatable th, #datatable td {
+    padding: 10px;
+    font-size: 14px;
+    text-align: left;
+    border-bottom: 1px solid #ddd;
+  }

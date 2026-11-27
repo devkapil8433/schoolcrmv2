@@ -323,7 +323,16 @@ foreach($languages as $lang) :
 						<li><a href="<?php echo base_url('school_settings');?>"><i class="fas fa-school"></i> <?php echo translate('school_settings');?></a></li>
 					<?php endif; ?>
 					<li role="separator" class="divider"></li>
+					<li class="dropdown-header"><?php echo translate('switch_account');?></li>
+					<?php foreach (get_linked_accounts() as $linkedID => $linkedAcc) { ?>
+					<li><a href="<?php echo base_url('authentication/switch_account/' . (int) $linkedID);?>"><i class="fas fa-user-friends"></i> <?php echo html_escape($linkedAcc['name']);?> <small class="text-muted">(<?php echo html_escape(ucfirst($linkedAcc['role']));?>)</small></a></li>
+					<?php } ?>
+					<li><a href="<?php echo base_url('authentication?add_account=1');?>"><i class="fas fa-user-plus"></i> <?php echo translate('add_another_account');?></a></li>
+					<li role="separator" class="divider"></li>
 					<li><a href="<?php echo base_url('authentication/logout');?>"><i class="fas fa-sign-out-alt"></i> <?php echo translate('logout');?></a></li>
+					<?php if (get_linked_accounts()) { ?>
+					<li><a href="<?php echo base_url('authentication/logout?all=1');?>"><i class="fas fa-power-off"></i> <?php echo translate('logout_all_accounts');?></a></li>
+					<?php } ?>
 				</ul>
 			</div>
 		</div>

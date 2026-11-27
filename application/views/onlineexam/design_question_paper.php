@@ -249,14 +249,152 @@ $list_template_url = base_url('onlineexam/design_question_paper' . $branch_query
 .dqp-empty {
 	text-align: center; padding: 28px 16px; border: 1px dashed #cbd5e1; border-radius: 10px; background: #f8fafc;
 }
+.dqp-pick-shell {
+	max-width: 1080px;
+	margin: 28px auto 0;
+}
 .dqp-pick-shell .panel {
-	border: 1px solid #e2e8f0; border-radius: 12px;
-	box-shadow: 0 1px 2px rgba(15, 23, 42, .04), 0 8px 24px rgba(15, 23, 42, .04);
+	overflow: hidden;
+	border: 1px solid #e2e8f0;
+	border-radius: 14px;
+	background: #fff;
+	box-shadow: 0 8px 24px rgba(26, 54, 93, .07);
+}
+.dqp-pick-shell .panel-heading {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+	min-height: 72px;
+	padding: 16px 22px;
+	border-bottom: 1px solid #edf1f6;
+	background: linear-gradient(115deg, #f5f8ff 0%, #fff 75%);
+}
+.dqp-pick-shell .panel-heading h4 {
+	display: flex;
+	align-items: center;
+	gap: 11px;
+	margin: 0;
+	color: #203451;
+	font-size: 17px;
+	font-weight: 700;
+}
+.dqp-pick-shell .panel-heading h4 i {
+	display: inline-flex;
+	width: 38px;
+	height: 38px;
+	align-items: center;
+	justify-content: center;
+	border-radius: 11px;
+	background: #e8efff;
+	color: #315fc4;
+	font-size: 15px;
+}
+.dqp-pick-shell .panel-body {
+	padding: 24px;
+}
+.dqp-pick-intro {
+	display: flex;
+	align-items: flex-start;
+	gap: 14px;
+	margin-bottom: 24px;
+	padding: 17px;
+	border: 1px solid #e5eaf2;
+	border-radius: 12px;
+	background: linear-gradient(115deg, #f7f9ff 0%, #fff 82%);
+}
+.dqp-pick-intro__icon {
+	display: inline-flex;
+	width: 42px;
+	height: 42px;
+	flex: 0 0 42px;
+	align-items: center;
+	justify-content: center;
+	border-radius: 12px;
+	background: #e8efff;
+	color: #315fc4;
+	font-size: 17px;
+}
+.dqp-pick-intro h5 {
+	margin: 1px 0 5px;
+	color: #253b59;
+	font-size: 15px;
+	font-weight: 700;
+}
+.dqp-pick-intro p {
+	margin: 0;
+	color: #71809a;
+	font-size: 13px;
+	line-height: 1.55;
+}
+.dqp-pick-shell .form-group {
+	margin-bottom: 18px;
+}
+.dqp-pick-shell .portal-label {
+	display: block;
+	margin-bottom: 8px;
+	color: #475467;
+	font-size: 12px;
+	font-weight: 700;
+	letter-spacing: .035em;
+	text-transform: uppercase;
+}
+.dqp-pick-shell .select2-container .select2-choice,
+.dqp-pick-shell .select2-container .select2-selection {
+	min-height: 46px;
+	border-color: #d8e0ec;
+	border-radius: 9px;
+	box-shadow: none;
+}
+.dqp-pick-shell .select2-container .select2-choice > .select2-chosen,
+.dqp-pick-shell .select2-container .select2-selection__rendered {
+	line-height: 44px;
+}
+.dqp-pick-actions {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 14px;
+	padding-top: 16px;
+	border-top: 1px solid #edf1f6;
+}
+.dqp-pick-actions__hint {
+	margin: 0;
+	color: #7b8798;
+	font-size: 12px;
+	line-height: 1.5;
+}
+.dqp-pick-actions .btn-portal-primary {
+	min-height: 42px;
+	padding: 10px 20px;
+	border: 0;
+	border-radius: 9px;
+	background: linear-gradient(135deg, #3567d6, #254eaf);
+	box-shadow: 0 5px 12px rgba(49, 94, 196, .2);
+	color: #fff;
+	font-weight: 700;
+}
+@media (max-width: 767px) {
+	.dqp-pick-shell {
+		margin-top: 16px;
+	}
+	.dqp-pick-shell .panel-heading,
+	.dqp-pick-shell .panel-body {
+		padding-right: 16px;
+		padding-left: 16px;
+	}
+	.dqp-pick-actions {
+		align-items: stretch;
+		flex-direction: column;
+	}
+	.dqp-pick-actions .btn-portal-primary {
+		width: 100%;
+	}
 }
 </style>
 <?php if ($branch_id_int < 1): ?>
 <div class="row dqp-pick-shell">
-	<div class="col-md-8 col-lg-6 col-md-offset-2 col-lg-offset-3">
+	<div class="col-md-10 col-md-offset-1">
 		<section class="panel panel-default">
 			<header class="panel-heading">
 				<h4 class="text-base font-semibold text-slate-900 flex items-center gap-2"><i class="fas fa-file-lines"></i> Question Paper Template</h4>
@@ -267,7 +405,13 @@ $list_template_url = base_url('onlineexam/design_question_paper' . $branch_query
 				</div>
 			</header>
 			<div class="panel-body">
-				<p class="mb-md"><i class="fas fa-building"></i> <?= translate('select') ?> <?= translate('branch') ?> first to view and manage saved templates.</p>
+				<div class="dqp-pick-intro">
+					<span class="dqp-pick-intro__icon"><i class="fas fa-building"></i></span>
+					<div>
+						<h5>Choose a school branch</h5>
+						<p>Select the branch whose saved question paper templates you want to view or manage. Templates and question types are branch-specific.</p>
+					</div>
+				</div>
 				<?php echo form_open('onlineexam/design_question_paper', array('method' => 'get')); ?>
 				<div class="form-group">
 					<label class="portal-label"><?= translate('branch') ?> <span class="required">*</span></label>
@@ -276,7 +420,10 @@ $list_template_url = base_url('onlineexam/design_question_paper' . $branch_query
 						echo form_dropdown('branch_id', $arrayBranchPick, '', "class='portal-input' required data-plugin-selectTwo data-width='100%'");
 					?>
 				</div>
-				<button type="submit" class="btn-portal-primary"><i class="fas fa-arrow-right"></i> <?= translate('continue') ?></button>
+				<div class="dqp-pick-actions">
+					<p class="dqp-pick-actions__hint"><i class="fas fa-circle-info"></i> You can add or edit templates after selecting a branch.</p>
+					<button type="submit" class="btn-portal-primary"><i class="fas fa-arrow-right"></i> <?= translate('continue') ?></button>
+				</div>
 				<?php echo form_close(); ?>
 			</div>
 		</section>

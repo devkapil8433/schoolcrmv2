@@ -20,6 +20,10 @@ $submission_prefills = isset($submission_prefills) && is_array($submission_prefi
 $subject_has_test = isset($subject_has_test) && is_array($subject_has_test) ? $subject_has_test : array();
 $teacher_class_boxes = isset($teacher_class_boxes) && is_array($teacher_class_boxes) ? $teacher_class_boxes : array();
 $teacher_week_days = isset($teacher_week_days) && is_array($teacher_week_days) ? $teacher_week_days : array();
+$period_scoped = !empty($period_scoped);
+$is_class_teacher = !empty($is_class_teacher);
+$timetable_id = isset($timetable_id) ? (int) $timetable_id : 0;
+$period_subject_id = isset($period_subject_id) ? (int) $period_subject_id : 0;
 $show_teacher_boxes = is_teacher_loggedin()
 	&& (empty($filter_class_id) || empty($filter_section_id))
 	&& (!empty($teacher_week_days) || !empty($teacher_class_boxes));
@@ -104,13 +108,11 @@ $students = array_merge($students_app, $students_other);
 .swr-chart-wrap { max-width: 860px; margin: 18px auto 0; height: 300px; }
 .swr-class-boxes {
 	display: grid;
-	grid-template-columns: repeat(8, minmax(0, 1fr));
-	gap: 10px;
+	grid-template-columns: repeat(4, minmax(0, 1fr));
+	column-gap: 14px;
+	row-gap: 18px;
 	margin: 4px 0 8px;
 	align-items: stretch;
-}
-@media (max-width: 1399px) {
-	.swr-class-boxes { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 }
 @media (max-width: 991px) {
 	.swr-class-boxes { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -121,6 +123,7 @@ $students = array_merge($students_app, $students_other);
 .swr-class-boxes .swr-class-col {
 	min-width: 0;
 	display: flex;
+	flex-direction: column;
 }
 .swr-class-boxes .swr-class-box {
 	display: flex;
@@ -129,11 +132,12 @@ $students = array_merge($students_app, $students_other);
 	background: #fff;
 	border: 1px solid #d5dbe3;
 	border-radius: 10px;
-	padding: 10px 10px 12px;
+	padding: 8px 9px;
 	text-decoration: none !important;
 	color: inherit;
 	transition: border-color .15s ease, box-shadow .15s ease, transform .15s ease, background .15s ease;
-	min-height: 132px;
+	min-height: 170px;
+	box-sizing: border-box;
 	box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04);
 	position: relative;
 	overflow: hidden;
@@ -145,7 +149,8 @@ $students = array_merge($students_app, $students_other);
 	width: 3px;
 	background: #cfd8dc;
 }
-.swr-class-boxes .swr-class-box.is-mine::before { background: #2e7d32; }
+.swr-class-boxes .swr-class-box.is-assigned::before { background: #1976d2; }
+.swr-class-boxes .swr-class-box.is-work-complete::before { background: #2e7d32; }
 .swr-class-boxes .swr-class-box.is-empty::before { background: #b0bec5; }
 .swr-class-boxes a.swr-class-box:hover {
 	border-color: #063944;
@@ -158,19 +163,28 @@ $students = array_merge($students_app, $students_other);
 	align-items: center;
 	justify-content: center;
 	align-self: flex-start;
-	font-size: 10px;
-	font-weight: 800;
-	letter-spacing: 0.04em;
-	text-transform: uppercase;
-	color: #fff;
-	background: #063944;
-	border-radius: 999px;
-	padding: 3px 8px;
-	margin: 0 0 8px;
-	line-height: 1.2;
+	font-size: 13px;
+	font-weight: 700;
+	letter-spacing: 0;
+	text-transform: none;
+	color: #476d95;
+	background: #eef4fa;
+	border: 1px solid #dce8f3;
+	border-radius: 7px;
+	padding: 5px 10px;
+	margin: 0 0 7px;
+	line-height: 1.25;
 }
-.swr-class-boxes .swr-class-box.is-mine .swr-period-no { background: #2e7d32; }
-.swr-class-boxes .swr-class-box.is-empty .swr-period-no { background: #90a4ae; }
+.swr-class-boxes .swr-class-box.is-work-complete .swr-period-no {
+	color: #4b8060;
+	background: #edf6f0;
+	border-color: #dcebe1;
+}
+.swr-class-boxes .swr-class-box.is-empty .swr-period-no {
+	color: #7d8995;
+	background: #f0f3f5;
+	border-color: #e2e7eb;
+}
 .swr-class-boxes .swr-class-box.is-other {
 	background: #f7f8fa;
 	border-style: dashed;
@@ -192,10 +206,75 @@ $students = array_merge($students_app, $students_other);
 	transform: none;
 	background: linear-gradient(180deg, #fafbfc 0%, #f3f5f7 100%);
 }
-.swr-class-boxes .swr-class-box.is-mine {
+.swr-class-boxes .swr-class-box.is-assigned {
+	border-color: #90caf9;
+	background: linear-gradient(180deg, #ffffff 0%, #f4f9ff 100%);
+}
+.swr-class-boxes .swr-class-box.is-work-complete {
 	border-color: #a5d6a7;
 	background: linear-gradient(180deg, #ffffff 0%, #f3faf4 100%);
 }
+.swr-period-actions {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: 6px;
+	margin-top: 7px;
+}
+.swr-period-actions .btn {
+	width: 100%;
+	min-height: 34px;
+	padding: 6px 5px;
+	border-radius: 6px;
+	font-size: 11px;
+	font-weight: 600;
+	white-space: normal;
+}
+.swr-period-actions .btn-primary {
+	border-color: #d3e2f0;
+	background: #edf4fa;
+	color: #4a7398;
+}
+.swr-period-actions .btn-primary:hover,
+.swr-period-actions .btn-primary:focus {
+	border-color: #bed4e6;
+	background: #e4eff7;
+	color: #3c668c;
+}
+.swr-period-actions .btn-success {
+	border-color: #d5e8dc;
+	background: #edf6f0;
+	color: #4d8060;
+}
+.swr-period-actions .btn-success:hover,
+.swr-period-actions .btn-success:focus {
+	border-color: #c3decf;
+	background: #e3f0e8;
+	color: #3d7050;
+}
+.swr-period-actions .btn-default,
+.swr-period-actions .btn-default.disabled {
+	border-color: #e3e8ed;
+	background: #f5f7f9;
+	color: #718090;
+	opacity: 1;
+}
+.swr-box-step-statuses {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: 4px;
+}
+.swr-box-step-status {
+	display: block;
+	padding: 5px 4px;
+	border-radius: 6px;
+	font-size: 11px;
+	font-weight: 700;
+	line-height: 1.2;
+	text-align: center;
+	white-space: nowrap;
+}
+.swr-box-step-status.is-complete { background: #e8f5e9; color: #2e7d32; }
+.swr-box-step-status.is-incomplete { background: #fff3e0; color: #ad6500; }
 .swr-class-row-title {
 	font-size: 13px;
 	font-weight: 700;
@@ -214,40 +293,43 @@ $students = array_merge($students_app, $students_other);
 	min-height: 0;
 }
 .swr-class-boxes .swr-class-box .swr-class-name {
-	font-size: 13px;
+	font-size: 14px;
 	font-weight: 700;
 	color: #063944;
-	margin: 0 0 4px;
-	line-height: 1.25;
+	margin: 0 0 3px;
+	line-height: 1.2;
 	word-break: break-word;
+	flex-shrink: 0;
 }
 .swr-class-boxes .swr-class-box .swr-section-name {
-	font-size: 11px;
+	font-size: 10px;
 	color: #60727e;
 	margin: 0 0 4px;
 	line-height: 1.3;
 }
 .swr-class-boxes .swr-class-box .swr-period-time {
-	font-size: 11px;
+	font-size: 13px;
 	font-weight: 700;
 	color: #1a237e;
-	margin: 0 0 6px;
-	line-height: 1.3;
+	margin: 0 0 3px;
+	line-height: 1.2;
 	white-space: nowrap;
 	overflow: hidden;
 	text-overflow: ellipsis;
+	flex-shrink: 0;
 }
 .swr-class-boxes .swr-class-box .swr-subject-name {
-	font-size: 13px;
+	font-size: 14px;
 	font-weight: 700;
 	color: #1f2d3d;
-	margin: 0 0 6px;
-	line-height: 1.3;
-	min-height: 2.6em;
+	margin: 0 0 3px;
+	line-height: 1.2;
+	min-height: 2.4em;
 	display: -webkit-box;
 	-webkit-line-clamp: 2;
 	-webkit-box-orient: vertical;
 	overflow: hidden;
+	flex-shrink: 0;
 }
 .swr-class-boxes .swr-class-box.is-empty .swr-subject-name {
 	min-height: 0;
@@ -257,20 +339,13 @@ $students = array_merge($students_app, $students_other);
 }
 .swr-class-boxes .swr-class-box .swr-box-meta {
 	margin-top: auto;
-	padding-top: 6px;
+	padding-top: 3px;
 }
 .swr-class-boxes .swr-class-box .label {
 	margin: 0 4px 4px 0;
 	font-size: 10px;
 	padding: 2px 6px;
 	display: inline-block;
-}
-.swr-class-boxes .swr-class-box .swr-open-hint {
-	display: inline-block;
-	margin-top: 4px;
-	font-size: 11px;
-	color: #1565c0;
-	font-weight: 700;
 }
 .swr-week-day {
 	margin: 0 0 18px;
@@ -279,19 +354,25 @@ $students = array_merge($students_app, $students_other);
 }
 .swr-week-day:last-child { border-bottom: 0; }
 .swr-week-day-title {
-	font-size: 13px;
+	display: flex;
+	align-items: center;
+	flex-wrap: wrap;
+	gap: 8px;
+	font-size: 16px;
 	font-weight: 800;
 	letter-spacing: 0.04em;
 	color: #063944;
-	margin: 0 0 10px;
+	margin: 0 0 14px;
 }
 .swr-week-day-title .swr-week-date {
+	font-size: 14px;
 	font-weight: 600;
 	color: #777;
 	letter-spacing: 0;
-	margin-left: 8px;
+	margin-left: 0;
 	text-transform: none;
 }
+.swr-week-day-title .label { font-size: 11px; }
 .swr-week-day.is-today .swr-week-day-title { color: #1565c0; }
 .swr-week-day.is-today .swr-class-box { border-color: #90caf9; }
 .swr-week-day.is-holiday {
@@ -369,7 +450,7 @@ $students = array_merge($students_app, $students_other);
 						<label><?= translate('date') ?></label>
 						<input type="text" class="form-control" name="date" id="swr_date" value="<?= html_escape($report_date) ?>" data-plugin-datepicker data-plugin-options='{"format":"yyyy-mm-dd"}'>
 					</div>
-					<?php if (!$show_teacher_boxes): ?>
+					<?php if (!$show_teacher_boxes && !$period_scoped): ?>
 					<div class="col-md-2">
 						<label><?= translate('class') ?></label>
 						<?= form_dropdown('class_id', $class_options, $filter_class_id, "class='form-control' id='class_id' onchange='getSectionByClass(this.value,0)' data-plugin-selectTwo data-width='100%'") ?>
@@ -378,8 +459,13 @@ $students = array_merge($students_app, $students_other);
 						<label><?= translate('section') ?></label>
 						<?= form_dropdown('section_id', $section_options, $filter_section_id, "class='form-control' id='section_id' data-plugin-selectTwo data-width='100%'") ?>
 					</div>
+					<?php elseif ($period_scoped): ?>
+					<input type="hidden" name="class_id" value="<?= (int) $filter_class_id ?>">
+					<input type="hidden" name="section_id" value="<?= (int) $filter_section_id ?>">
+					<input type="hidden" name="subject_id" value="<?= $period_subject_id ?>">
+					<input type="hidden" name="timetable_id" value="<?= (int) $timetable_id ?>">
 					<?php endif; ?>
-					<?php if (is_teacher_loggedin() && !empty($filter_class_id) && !empty($filter_section_id) && !empty($teacher_class_boxes)): ?>
+					<?php if (is_teacher_loggedin() && !empty($filter_class_id) && !empty($filter_section_id) && ($period_scoped || !empty($teacher_class_boxes))): ?>
 					<div class="col-md-2">
 						<label>&nbsp;</label>
 						<?php
@@ -388,16 +474,13 @@ $students = array_merge($students_app, $students_other);
 							$changeQ['branch_id'] = (int) $branch_id;
 						}
 						?>
-						<a href="<?= html_escape(base_url('digital_diary/student_work_report_entry') . '?' . http_build_query($changeQ)) ?>" class="btn btn-default btn-block"><i class="fas fa-th-large"></i> My classes</a>
+						<a href="<?= html_escape(base_url('digital_diary/student_work_report_entry') . '?' . http_build_query($changeQ)) ?>" class="btn btn-default btn-block"><i class="fas fa-th-large"></i> My timetable</a>
 					</div>
 					<?php endif; ?>
 				</div>
 				<?php echo form_close(); ?>
 
 				<?php if ($show_teacher_boxes): ?>
-				<p class="mb-sm text-muted">
-					Showing <strong>selected date</strong> only — green = your course. Change the date above to switch day.
-				</p>
 				<?php
 				$render_swr_box = function ($box) use ($branch_id, $report_date) {
 					$workDate = !empty($box['work_date']) ? $box['work_date'] : $report_date;
@@ -405,21 +488,39 @@ $students = array_merge($students_app, $students_other);
 						'date' => $workDate,
 						'class_id' => (int) $box['class_id'],
 						'section_id' => (int) $box['section_id'],
+						'subject_id' => (int) $box['subject_id'],
+						'timetable_id' => (int) $box['timetable_id'],
 					);
 					if (!empty($branch_id)) {
 						$boxQ['branch_id'] = (int) $branch_id;
 					}
 					$boxUrl = base_url('digital_diary/student_work_report_entry') . '?' . http_build_query($boxQ);
+					$todayWorkUrl = base_url('digital_diary/today_work') . '?' . http_build_query($boxQ);
 					$isPeriod = !empty($box['is_period']);
 					$periodNo = !empty($box['period_no']) ? (int) $box['period_no'] : 0;
 					$isEmpty = !empty($box['is_empty']);
 					$isAssigned = !empty($box['is_assigned']);
-					$canOpen = !empty($box['can_open']) && !$isEmpty && $isAssigned;
+					$isStep1Complete = !empty($box['step1_complete']);
+					$isStep2Complete = !empty($box['step2_complete']);
+					$isWorkComplete = !empty($box['is_work_complete']);
+					$timetableId = !empty($box['timetable_id']) ? (int) $box['timetable_id'] : 0;
+					$periodTimeLabel = trim((string) (isset($box['time_label']) ? $box['time_label'] : ''));
+					if ($periodTimeLabel === '') {
+						$startTime = !empty($box['time_start']) ? strtotime($box['time_start']) : false;
+						$endTime = !empty($box['time_end']) ? strtotime($box['time_end']) : false;
+						if ($startTime !== false) {
+							$periodTimeLabel = date('g:i A', $startTime);
+							if ($endTime !== false) {
+								$periodTimeLabel .= ' - ' . date('g:i A', $endTime);
+							}
+						}
+					}
+					$canOpen = !$isEmpty && $isAssigned && $timetableId > 0;
 					$boxClass = 'swr-class-box';
 					if ($isEmpty) {
 						$boxClass .= ' is-empty';
 					} elseif ($isPeriod && $isAssigned) {
-						$boxClass .= ' is-mine';
+						$boxClass .= $isWorkComplete ? ' is-work-complete' : ' is-assigned';
 					} elseif ($isPeriod && !$isAssigned) {
 						$boxClass .= ' is-other';
 					}
@@ -432,15 +533,19 @@ $students = array_merge($students_app, $students_other);
 						<div class="<?= html_escape($boxClass) ?>">
 						<?php endif; ?>
 							<?php if ($periodNo > 0): ?>
-							<span class="swr-period-no">P<?= $periodNo ?></span>
+							<span class="swr-period-no">Period <?= $periodNo ?></span>
 							<?php endif; ?>
 							<div class="swr-box-body">
 							<?php if ($isEmpty): ?>
 								<p class="swr-subject-name">—</p>
 								<p class="swr-section-name">Free</p>
 							<?php else: ?>
-								<?php if (!empty($box['time_label'])): ?>
-								<p class="swr-period-time"><i class="far fa-clock"></i> <?= html_escape($box['time_label']) ?></p>
+								<p class="swr-class-name">
+									<?= html_escape(!empty($box['class_name']) ? $box['class_name'] : get_type_name_by_id('class', (int) $box['class_id'])) ?>
+									— <?= translate('section') ?> <?= html_escape(!empty($box['section_name']) ? $box['section_name'] : get_type_name_by_id('section', (int) $box['section_id'])) ?>
+								</p>
+								<?php if ($periodTimeLabel !== ''): ?>
+								<p class="swr-period-time"><i class="far fa-clock"></i> <?= html_escape($periodTimeLabel) ?></p>
 								<?php endif; ?>
 								<p class="swr-subject-name"><?= html_escape(!empty($box['subject_name']) ? $box['subject_name'] : '—') ?></p>
 								<?php if (!empty($box['class_room'])): ?>
@@ -448,7 +553,16 @@ $students = array_merge($students_app, $students_other);
 								<?php endif; ?>
 								<?php if ($canOpen): ?>
 								<div class="swr-box-meta">
-									<span class="swr-open-hint">Open <i class="fas fa-arrow-right"></i></span>
+									<div class="swr-box-step-statuses">
+										<span class="swr-box-step-status <?= $isStep1Complete ? 'is-complete' : 'is-incomplete' ?>">
+											<i class="fas <?= $isStep1Complete ? 'fa-check-circle' : 'fa-exclamation-circle' ?>"></i>
+											Step 1: <?= $isStep1Complete ? 'Done' : 'Pending' ?>
+										</span>
+										<span class="swr-box-step-status <?= $isStep2Complete ? 'is-complete' : 'is-incomplete' ?>">
+											<i class="fas <?= $isStep2Complete ? 'fa-check-circle' : 'fa-exclamation-circle' ?>"></i>
+											Step 2: <?= $isStep2Complete ? 'Done' : 'Pending' ?>
+										</span>
+									</div>
 								</div>
 								<?php endif; ?>
 							<?php endif; ?>
@@ -456,6 +570,20 @@ $students = array_merge($students_app, $students_other);
 						<?php if ($canOpen): ?>
 						</a>
 						<?php else: ?>
+						</div>
+						<?php endif; ?>
+						<?php if ($isPeriod && $isAssigned && $timetableId > 0): ?>
+						<div class="swr-period-actions">
+							<a href="<?= html_escape($boxUrl) ?>" class="btn btn-xs <?= $isStep1Complete ? 'btn-default' : 'btn-primary' ?>">
+								<?= $isStep1Complete ? 'Edit Step 1' : 'Complete Step 1' ?>
+							</a>
+							<?php if ($isStep1Complete): ?>
+							<a href="<?= html_escape($todayWorkUrl) ?>" class="btn btn-xs <?= $isStep2Complete ? 'btn-success' : 'btn-primary' ?>">
+								<?= $isStep2Complete ? 'Edit Step 2' : 'Complete Step 2' ?>
+							</a>
+							<?php else: ?>
+							<span class="btn btn-xs btn-default disabled" aria-disabled="true">Complete Step 1 first</span>
+							<?php endif; ?>
 						</div>
 						<?php endif; ?>
 					</div>
@@ -528,6 +656,9 @@ $students = array_merge($students_app, $students_other);
 					} ?>
 				</div>
 				<?php endif; ?>
+				<p class="text-muted mt-md mb-md">
+					Open a period card for Step 1. Use its Step 2 button to finish or edit that period's work later. Green means both steps are complete; conducted status is tracked separately.
+				</p>
 				<?php endif; ?>
 
 				<?php if (!empty($filter_class_id) && !empty($filter_section_id) && ($is_day_final || $swr_has_saved_data)): ?>
@@ -538,6 +669,10 @@ $students = array_merge($students_app, $students_other);
 						'class_id' => (int) $filter_class_id,
 						'section_id' => (int) $filter_section_id,
 					);
+					if ($period_scoped && !$is_class_teacher) {
+						$tw_continue_q['subject_id'] = $period_subject_id;
+						$tw_continue_q['timetable_id'] = (int) $timetable_id;
+					}
 					if (!empty($branch_id)) {
 						$tw_continue_q['branch_id'] = (int) $branch_id;
 					}
@@ -558,6 +693,9 @@ $students = array_merge($students_app, $students_other);
 							<input type="hidden" name="work_date" value="<?= html_escape($report_date) ?>">
 							<input type="hidden" name="class_id" value="<?= (int) $filter_class_id ?>">
 							<input type="hidden" name="section_id" value="<?= (int) $filter_section_id ?>">
+							<?php if ($period_scoped): ?>
+							<input type="hidden" name="timetable_id" value="<?= (int) $timetable_id ?>">
+							<?php endif; ?>
 							<?php if (!empty($branch_id)): ?>
 							<input type="hidden" name="branch_id" value="<?= (int) $branch_id ?>">
 							<?php endif; ?>
@@ -628,6 +766,9 @@ $students = array_merge($students_app, $students_other);
 				<input type="hidden" name="work_date" value="<?= html_escape($report_date) ?>">
 				<input type="hidden" name="class_id" value="<?= (int) $filter_class_id ?>">
 				<input type="hidden" name="section_id" value="<?= (int) $filter_section_id ?>">
+				<?php if ($period_scoped): ?>
+				<input type="hidden" name="timetable_id" value="<?= (int) $timetable_id ?>">
+				<?php endif; ?>
 				<?php if (is_superadmin_loggedin()): ?>
 				<input type="hidden" name="branch_id" value="<?= (int) $branch_id ?>">
 				<?php else: ?>
@@ -723,7 +864,9 @@ $students = array_merge($students_app, $students_other);
 										$rq['student_id'] = $sid;
 										$reportUrl = base_url('digital_diary/parent_report_format') . '?' . http_build_query($rq);
 									?>
+									<?php if (!$period_scoped || $is_class_teacher): ?>
 									<a href="<?= html_escape($reportUrl) ?>" class="btn btn-xs btn-default" target="_blank" title="Report"><i class="fas fa-file-alt"></i> Report</a>
+									<?php endif; ?>
 								</td>
 								<?php if ($show_discipline): ?>
 								<td class="text-center">
@@ -835,7 +978,7 @@ $students = array_merge($students_app, $students_other);
 					</table>
 				</div>
 				<div class="text-right mt-md">
-					<button type="submit" class="btn btn-primary" id="btn_swr_submit" <?= $is_day_final ? 'disabled' : '' ?>><i class="fas fa-save"></i> Submit &amp; continue to Step 2: Today's Work</button>
+					<button type="submit" class="btn btn-primary" id="btn_swr_submit" <?= $is_day_final ? 'disabled' : '' ?>><i class="fas fa-save"></i> <?= $period_scoped && !$is_class_teacher ? 'Save Student Work Report' : 'Submit &amp; continue to Step 2: Today\'s Work' ?></button>
 				</div>
 				<?php echo form_close(); ?>
 
@@ -876,6 +1019,7 @@ $students = array_merge($students_app, $students_other);
 				$chart_learning = array();
 				$subject_ids_for_js = array();
 				?>
+				<?php if (!$period_scoped): ?>
 				<div class="swr-hw-strip mt-lg mb-none" id="swr_hw_strip"
 					data-student-count="<?= (int) count($students) ?>">
 					<div class="swr-hw-title">Subject wise work Percentage</div>
@@ -1065,6 +1209,7 @@ $students = array_merge($students_app, $students_other);
 	</div>
 </div>
 
+<?php endif; ?>
 <?php if ($swr_table_ok && (!is_superadmin_loggedin() || !empty($branch_id))): ?>
 <script type="text/javascript">
 	$(document).ready(function () {

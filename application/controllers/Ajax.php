@@ -87,7 +87,10 @@ class Ajax extends MY_Controller
     {
         $html = "";
         $table = $this->input->post('table');
-        $branch_id = $this->application_model->get_branch_id();
+        $branch_id = $this->input->post('branch_id');
+        if ($branch_id === null || $branch_id === '') {
+            $branch_id = $this->application_model->get_branch_id();
+        }
         if (!empty($branch_id)) {
             $result = $this->db->select('id,name')->where('branch_id', $branch_id)->get($table)->result_array();
             if (count($result)) {

@@ -1,4 +1,4 @@
-<section class="panel">
+<section class="panel fee-collection-filter">
 	<div class="tabs-custom">
 		<ul class="nav nav-tabs">
 			<li>

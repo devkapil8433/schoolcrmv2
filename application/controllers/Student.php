@@ -3,6 +3,8 @@ defined('BASEPATH') or exit('No direct script access allowed');
 
 class Student extends Admin_Controller
 {
+    private $teacherClassSections;
+
 
     public function __construct()
     {
@@ -501,6 +503,12 @@ class Student extends Admin_Controller
             }
 
             if ($this->form_validation->run() == true) {
+                if (is_teacher_loggedin() && !$this->teacher_can_access_class_section(
+                    $this->input->post('class_id'),
+                    $this->input->post('section_id')
+                )) {
+                    access_denied();
+                }
                 $post = $this->input->post();
                 // save all student information in the database file
                 $studentData = $this->student_model->save($post, $getBranch);
@@ -544,15 +552,9 @@ class Student extends Admin_Controller
                 // $this->db->group_by(['sfa.fee_type_id', 'sfa.fee_master_id', 'sfa.student_category_id']);
                 // $this->db->where("JSON_CONTAINS(sfa.student_category_id, '\"$studentCategory\"')", NULL, FALSE);
                 // $existingAllocations = $this->db->get()->result_array();
-                $studentCategory = $this->db->select('category_id')
-                    ->from('student')
-                    ->where('id', $studentID)
-                    ->get()
-                    ->row('category_id');
-
                 // Assign fees from fee structure (fee_master_classwise) for this student
                 $this->load->model('fees_model');
-                $this->fees_model->allocateFeesForStudent($studentID, $post['class_id'], $branchID, $studentCategory);
+                $this->fees_model->allocateFeesForStudent($studentID, $post['class_id'], $branchID, $post['year_id']);
 
                 /*
              * ==============================
@@ -717,6 +719,9 @@ class Student extends Admin_Controller
         if (isset($_POST['search'])) {
             $classID = $this->input->post('class_id');
             $sectionID = $this->input->post('section_id');
+            if (!$this->teacher_can_access_class_section($classID, $sectionID)) {
+                access_denied();
+            }
             $this->data['students'] = $this->application_model->getStudentListByClassSection($classID, $sectionID, $branchID, true);
         }
 
@@ -727,6 +732,9 @@ class Student extends Admin_Controller
             $stafflist = $this->input->post('views_bulk_operations');
             if (isset($stafflist)) {
                 foreach ($stafflist as $id) {
+                    if (!$this->teacher_can_access_student_id($id)) {
+                        access_denied();
+                    }
                     $this->db->where(array('role' => 7, 'user_id' => $id));
                     $this->db->update('login_credential', array('active' => 1));
 
@@ -915,7 +923,7 @@ class Student extends Admin_Controller
      */
     public function login_as_student($enroll_id = '')
     {
-        if (!get_permission('student', 'is_view')) {
+        if (is_teacher_loggedin() || !get_permission('student', 'is_view')) {
             access_denied();
         }
         if (is_student_loggedin() || is_parent_loggedin()) {
@@ -994,6 +1002,9 @@ class Student extends Admin_Controller
                 return false;
             }
         }
+        if (is_teacher_loggedin()) {
+            return $this->teacher_can_access_class_section($enroll['class_id'], $enroll['section_id']);
+        }
         $assigned_cs_list = $this->app_lib->get_ownClassSection();
         if ($assigned_cs_list === false || empty($assigned_cs_list)) {
             return true;
@@ -1013,16 +1024,59 @@ class Student extends Admin_Controller
         return false;
     }
 
+    private function teacher_can_access_class_section($classID, $sectionID)
+    {
+        if (!is_teacher_loggedin()) {
+            return true;
+        }
+        if ($this->teacherClassSections === null) {
+            $this->teacherClassSections = $this->app_lib->get_class_teacher_sections();
+        }
+        $classSections = $this->teacherClassSections;
+        return isset($classSections[(int) $classID])
+            && in_array((int) $sectionID, $classSections[(int) $classID], true);
+    }
+
+    private function teacher_can_access_student_id($studentID)
+    {
+        if (!is_teacher_loggedin()) {
+            return true;
+        }
+        $enrollments = $this->db->get_where('enroll', array(
+            'student_id' => (int) $studentID,
+            'branch_id' => (int) get_loggedin_branch_id(),
+            'session_id' => (int) get_session_id(),
+        ))->result_array();
+        foreach ($enrollments as $enrollment) {
+            if ($this->teacher_can_access_class_section($enrollment['class_id'], $enrollment['section_id'])) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     /* profile preview and information are updating here */
     public function profile($id = '')
     {
         // check access permission
-        if (!get_permission('student', 'is_edit')) {
+        if (is_teacher_loggedin() || !get_permission('student', 'is_edit')) {
             access_denied();
         }
         $this->load->model('fees_model');
         $this->load->model('exam_model');
         $getStudent = $this->student_model->getSingleStudent($id, true);
+        if (is_teacher_loggedin()) {
+            $enroll = !empty($getStudent['enrollid'])
+                ? $this->db->get_where('enroll', array(
+                    'id' => (int) $getStudent['enrollid'],
+                    'session_id' => (int) get_session_id(),
+                    'branch_id' => (int) get_loggedin_branch_id(),
+                ))->row_array()
+                : array();
+            if (empty($enroll) || !$this->staff_can_access_enroll_row($enroll)) {
+                access_denied();
+            }
+        }
         if (isset($_POST['update'])) {
             $this->session->set_flashdata('profile_tab', 1);
             $this->data['branch_id'] = $this->application_model->get_branch_id();
@@ -1039,6 +1093,12 @@ class Student extends Admin_Controller
 
             $this->form_validation->set_rules('parent_id', translate('guardian'), 'required');
             if ($this->form_validation->run() == true) {
+                if (is_teacher_loggedin() && !$this->teacher_can_access_class_section(
+                    $this->input->post('class_id'),
+                    $this->input->post('section_id')
+                )) {
+                    access_denied();
+                }
                 $post = $this->input->post();
                 //save all student information in the database file
                 $studentID = $this->student_model->save($post);
@@ -1052,6 +1112,14 @@ class Student extends Admin_Controller
                 );
                 $this->db->where('id', $getStudent['enrollid']);
                 $this->db->update('enroll', $arrayEnroll);
+
+                $this->load->model('fees_model');
+                $this->fees_model->allocateFeesForStudent(
+                    $studentID,
+                    $arrayEnroll['class_id'],
+                    $arrayEnroll['branch_id'],
+                    $arrayEnroll['session_id']
+                );
 
                 // transport data save in the database file 
                 if (!empty($transport_fees_month)) {
@@ -1420,6 +1488,17 @@ class Student extends Admin_Controller
     public function quickDetails()
     {
         $id = $this->input->post('enroll_id');
+        if (is_teacher_loggedin()) {
+            $enroll = $this->db->get_where('enroll', array(
+                'id' => (int) $id,
+                'session_id' => (int) get_session_id(),
+                'branch_id' => (int) get_loggedin_branch_id(),
+            ))->row_array();
+            if (empty($enroll) || !$this->staff_can_access_enroll_row($enroll)) {
+                echo json_encode(array('status' => 'error', 'message' => translate('access_denied')));
+                return;
+            }
+        }
         $this->db->select('student.*,enroll.student_id,enroll.roll,student_category.name as cname');
         $this->db->from('enroll');
         $this->db->join('student', 'student.id = enroll.student_id', 'inner');
@@ -1446,7 +1525,21 @@ class Student extends Admin_Controller
     /* student information delete here */
     public function delete_data($eid = '', $sid = '')
     {
+        if (is_teacher_loggedin()) {
+            access_denied();
+        }
         if (get_permission('student', 'is_delete')) {
+            if (is_teacher_loggedin()) {
+                $enroll = $this->db->get_where('enroll', array(
+                    'id' => (int) $eid,
+                    'student_id' => (int) $sid,
+                    'branch_id' => (int) get_loggedin_branch_id(),
+                    'session_id' => (int) get_session_id(),
+                ))->row_array();
+                if (empty($enroll) || !$this->staff_can_access_enroll_row($enroll)) {
+                    access_denied();
+                }
+            }
             $branchID = get_type_name_by_id('enroll', $eid, 'branch_id');
             // Check student restrictions
             if (!is_superadmin_loggedin()) {
@@ -1475,11 +1568,23 @@ class Student extends Admin_Controller
 
     public function bulk_delete()
     {
+        if (is_teacher_loggedin()) {
+            echo json_encode(array('status' => 'error', 'message' => translate('access_denied')));
+            return;
+        }
         if ($_POST) {
             $status = 'success';
             $message = translate('information_deleted');
             if (get_permission('student', 'is_delete')) {
                 $arrayID = $this->input->post('array_id');
+                if (is_teacher_loggedin()) {
+                    foreach ((array) $arrayID as $studentID) {
+                        if (!$this->teacher_can_access_student_id($studentID)) {
+                            echo json_encode(array('status' => 'error', 'message' => translate('access_denied')));
+                            return;
+                        }
+                    }
+                }
                 foreach ($arrayID as $key => $row) {
                     $branchID = $this->student_model->get('enroll', ['student_id' => $row], true, false, 'branch_id')['branch_id'];
                     if (!is_superadmin_loggedin()) {
@@ -1527,6 +1632,9 @@ class Student extends Admin_Controller
         if (isset($_POST['search'])) {
             $classID = $this->input->post('class_id');
             $sectionID = $this->input->post('section_id');
+            if (!$this->teacher_can_access_class_section($classID, $sectionID)) {
+                access_denied();
+            }
             $this->data['students'] = $this->application_model->getStudentListByClassSection($classID, $sectionID, $branchID, false, true);
         }
         $this->data['branch_id'] = $branchID;
@@ -1546,6 +1654,9 @@ class Student extends Admin_Controller
                 if (!empty($type)) {
                     if ($type == 'student') {
                         $student_id = $this->input->post('student_id');
+                        if (!$this->teacher_can_access_student_id($student_id)) {
+                            access_denied();
+                        }
                         if (!is_superadmin_loggedin()) {
                             $chkID = $this->db->select('id')->where(['student_id' => $student_id, 'branch_id' => get_loggedin_branch_id()])->get('enroll')->row();
                             if (empty($chkID)) {
@@ -1589,6 +1700,9 @@ class Student extends Admin_Controller
         if (isset($_POST['search'])) {
             $classID = $this->input->post('class_id');
             $sectionID = $this->input->post('section_id');
+            if (!$this->teacher_can_access_class_section($classID, $sectionID)) {
+                access_denied();
+            }
             $daterange = explode(' - ', $this->input->post('daterange'));
             $start = date("Y-m-d", strtotime($daterange[0]));
             $end = date("Y-m-d", strtotime($daterange[1]));
@@ -1718,6 +1832,9 @@ class Student extends Admin_Controller
         if (isset($_POST['search'])) {
             $classID = $this->input->post('class_id');
             $sectionID = $this->input->post('section_id');
+            if (!$this->teacher_can_access_class_section($classID, $sectionID)) {
+                access_denied();
+            }
             $getParentsList = $this->student_model->getParentList($classID, $sectionID, $branchID);
             $list = array();
             foreach ($getParentsList as $key => $parent) {
@@ -1752,108 +1869,166 @@ class Student extends Admin_Controller
 
     public function live_search()
     {
-        $query = $this->input->post('query');
-        $branch_id = $this->input->post('branch_id');
-        // $this->db->select('*');
-        $this->db->select('student.register_no, student.first_name, student.last_name, student.mobileno,enroll.id as enroll_id,enroll.branch_id, class.name as class_name, section.name as section_name,sfa.id AS allocation_id,
-        sfa.fee_type_id,
-        sfa.amount,
-        sfa.due_date,
-        ft.fee_name');
-
-        $this->db->from('student');
-        $this->db->join('enroll', 'enroll.student_id = student.id', 'left');
-        // $this->db->join('parent', 'parent.id = student.parent_id', 'left');
-        $this->db->join('class', 'class.id = enroll.class_id', 'left');
-        $this->db->join('section', 'section.id = enroll.section_id', 'left');
-        $this->db->join('student_fee_allocation AS sfa', 'sfa.student_id = student.id', 'inner');
-        $this->db->join('fees_type AS ft', 'ft.id = sfa.fee_type_id', 'inner');
-
-
-        if (!empty($branch_id)) {
-            $this->db->where('enroll.branch_id', $branch_id);
+        if (!get_permission('invoice', 'is_view')) {
+            access_denied();
         }
-        if (!empty($query)) {
-            $this->db->group_start();
-            $this->db->like('register_no', $query);
-            $this->db->or_like('first_name', $query);
-            $this->db->or_like('last_name', $query);
-            $this->db->or_like('mobileno', $query);
-            $this->db->group_end();
+        $query = trim((string) $this->input->post('query'));
+        $branch_id = is_superadmin_loggedin()
+            ? (int) $this->input->post('branch_id')
+            : (int) get_loggedin_branch_id();
+        if ($branch_id < 1) {
+            echo '<p class="text-center text-muted">Select a branch to search students.</p>';
+            return;
         }
-        $this->db->group_by('student.id');
-        $result = $this->db->get()->result_array();
+        if (mb_strlen($query) < 2) {
+            echo '<div class="fee-student-search-status">Type at least 2 characters to search.</div>';
+            return;
+        }
 
-        $output = '<table class="table table-bordered">
-                <thead>
-                    <tr>
-                        <th>Admission No</th>
-                        <th>Student Name</th>
-                        <th>Class</th>
-                        <th>Section</th>
-                        <th>Mobile</th>
-                        <th>Action</th>
-                    </tr>
-                </thead><tbody>';
-
+        $result = $this->getFeeStudentSearchResults($query, $branch_id);
         if (!empty($result)) {
+            $resultCount = count($result);
+            $resultSummary = $resultCount === 10
+                ? 'Showing up to 10 matches'
+                : $resultCount . ' student' . ($resultCount === 1 ? '' : 's') . ' found';
+            $output = '<div class="fee-student-results-heading">' . $resultSummary . ' <span>Choose a student to collect fees</span></div><div class="fee-student-result-list">';
             foreach ($result as $row) {
                 $invoice_url = base_url('fees/invoice/' . $row['enroll_id']);
                 $profile_url = base_url('student/profile/' . $row['enroll_id']);
-                $output .= '<tr>
-                        <td><a href="' . $invoice_url . '">' . $row['register_no'] . '</a></td>
-                        <td><a href="' . $profile_url . '">' . $row['first_name'] . ' ' . $row['last_name'] . '</a></td>
-                        <td>' . $row['class_name'] . '</td>
-                        <td>' . $row['section_name'] . '</td>
-                        <td>' . $row['mobileno'] . '</td>
-                        <td><a href="' . $invoice_url . '">' . 'Collect' . '</a></td>
-                    </tr>';
+                $studentName = html_escape(trim($row['first_name'] . ' ' . $row['last_name']));
+                $studentMeta = array_filter(array(
+                    !empty($row['register_no']) ? 'Admission: ' . $row['register_no'] : '',
+                    trim(($row['class_name'] ?? '') . (!empty($row['section_name']) ? ' · ' . $row['section_name'] : '')),
+                    !empty($row['roll']) ? 'Roll: ' . $row['roll'] : '',
+                    !empty($row['mobileno']) ? 'Student mobile: ' . $row['mobileno'] : '',
+                    !empty($row['guardian_name']) ? 'Guardian: ' . $row['guardian_name'] : '',
+                    !empty($row['father_name']) ? 'Father: ' . $row['father_name'] : '',
+                    !empty($row['guardian_mobileno']) ? 'Guardian mobile: ' . $row['guardian_mobileno'] : '',
+                ));
+                $output .= '<article class="fee-student-result-card">
+                    <div class="fee-student-result-card__identity">
+                        <span class="fee-student-result-card__avatar" aria-hidden="true"><i class="fas fa-user-graduate"></i></span>
+                        <div><strong>' . $studentName . '</strong><span>' . html_escape(implode('  ·  ', $studentMeta)) . '</span></div>
+                    </div>
+                    <div class="fee-student-result-card__actions">
+                        <a class="btn btn-default btn-sm" href="' . $profile_url . '"><i class="fas fa-id-card"></i> Profile</a>
+                        <a class="btn btn-primary btn-sm" href="' . $invoice_url . '"><i class="fas fa-wallet"></i> Collect fee</a>
+                    </div>
+                </article>';
             }
+            $output .= '</div>';
         } else {
-            $output .= '<tr><td colspan="5" class="text-center">No students found</td></tr>';
+            $output = '<div class="fee-student-search-status"><strong>No matching students found.</strong><span>Try a shorter name, admission number, mobile number, guardian name, roll number, class, or section.</span></div>';
         }
-        $output .= '</tbody></table>';
-
-        // print_r($result);exit;
         echo $output;
     }
     public function live_search_for_fees_card()
     {
-        $query     = $this->input->post('query');
-        $branch_id = $this->input->post('branch_id');
-
-        $this->db->select('student.id, student.first_name, student.last_name, enroll.id as enroll_id');
-        $this->db->from('student');
-        $this->db->join('enroll', 'enroll.student_id = student.id', 'left');
-
-        if ($branch_id) {
-            $this->db->where('enroll.branch_id', $branch_id);
+        if (!get_permission('invoice', 'is_view')) {
+            access_denied();
         }
-
-        if ($query) {
-            $this->db->group_start();
-            $this->db->like('student.first_name', $query);
-            $this->db->or_like('student.last_name', $query);
-            $this->db->or_like('student.register_no', $query);
-            $this->db->group_end();
+        $query = trim((string) $this->input->post('query'));
+        $branch_id = is_superadmin_loggedin()
+            ? (int) $this->input->post('branch_id')
+            : (int) get_loggedin_branch_id();
+        if ($branch_id < 1) {
+            echo '<div class="fee-student-search-status">Select a branch before searching.</div>';
+            return;
         }
-
-        $this->db->limit(10);
-        $students = $this->db->get()->result_array();
-
-        if (empty($students)) {
-            echo '<div class="list-group-item">No student found</div>';
+        if (mb_strlen($query) < 2) {
+            echo '<div class="fee-student-search-status">Type at least 2 characters to search.</div>';
             return;
         }
 
-        foreach ($students as $s) {
-            echo '
-        <a href="javascript:void(0)" 
-           class="list-group-item list-group-item-action student-select"
-           data-enroll="' . $s['enroll_id'] . '">
-           ' . $s['first_name'] . ' ' . $s['last_name'] . '
-        </a>';
+        $students = $this->getFeeStudentSearchResults($query, $branch_id);
+
+        if (empty($students)) {
+            echo '<div class="fee-student-search-status"><strong>No matching students found.</strong><span>Try a shorter name, admission number, mobile number, guardian name, roll number, class, or section.</span></div>';
+            return;
         }
+
+        $resultCount = count($students);
+        $resultSummary = $resultCount === 10
+            ? 'Showing up to 10 matches'
+            : $resultCount . ' student' . ($resultCount === 1 ? '' : 's') . ' found';
+        echo '<div class="fee-student-results-heading">' . $resultSummary . ' <span>Select a student to open the fee card</span></div>';
+        echo '<div class="list-group">';
+        foreach ($students as $s) {
+            $studentName = html_escape(trim($s['first_name'] . ' ' . $s['last_name']));
+            $studentMeta = array_filter(array(
+                !empty($s['register_no']) ? 'Admission: ' . $s['register_no'] : '',
+                trim(($s['class_name'] ?? '') . (!empty($s['section_name']) ? ' - ' . $s['section_name'] : '')),
+                !empty($s['roll']) ? 'Roll: ' . $s['roll'] : '',
+                !empty($s['mobileno']) ? 'Student mobile: ' . $s['mobileno'] : '',
+                !empty($s['guardian_name']) ? 'Guardian: ' . $s['guardian_name'] : '',
+                !empty($s['father_name']) ? 'Father: ' . $s['father_name'] : '',
+                !empty($s['guardian_mobileno']) ? 'Guardian mobile: ' . $s['guardian_mobileno'] : '',
+            ));
+            echo '<a href="#" class="list-group-item student-select" data-enroll="' . (int) $s['enroll_id'] . '">
+                <span>
+                    <span class="fee-student-result-card__avatar" aria-hidden="true"><i class="fas fa-user-graduate"></i></span>
+                    <span class="fee-student-result__content">
+                    <span class="fee-student-result__name">' . $studentName . '</span>
+                    <span class="fee-student-result__meta">' . html_escape(implode(' · ', $studentMeta)) . '</span>
+                    </span>
+                </span>
+                <span class="fee-student-result__action">Open Fee Card <i class="fas fa-arrow-right"></i></span>
+            </a>';
+        }
+        echo '</div>';
+    }
+
+    private function getFeeStudentSearchResults($query, $branchID)
+    {
+        $this->db->select('student.register_no, student.first_name, student.last_name, student.mobileno,
+                enroll.id as enroll_id, enroll.roll, class.name as class_name, section.name as section_name,
+                parent.name as guardian_name, parent.father_name, parent.mobileno as guardian_mobileno');
+        $this->db->from('student');
+        $this->db->join('enroll', 'enroll.student_id = student.id', 'inner');
+        $this->db->join('class', 'class.id = enroll.class_id', 'left');
+        $this->db->join('section', 'section.id = enroll.section_id', 'left');
+        $this->db->join('parent', 'parent.id = student.parent_id', 'left');
+        $this->db->where('enroll.branch_id', $branchID);
+        $this->db->where('enroll.session_id', get_session_id());
+        $this->db->where('student.active', 1);
+
+        $searchTokens = preg_split('/\s+/', trim($query), -1, PREG_SPLIT_NO_EMPTY);
+        foreach ($searchTokens as $token) {
+            $this->db->group_start()
+                ->like('student.register_no', $token)
+                ->or_like('student.first_name', $token)
+                ->or_like('student.last_name', $token)
+                ->or_like('enroll.roll', $token)
+                ->or_like('class.name', $token)
+                ->or_like('section.name', $token)
+                ->or_like('parent.name', $token)
+                ->or_like('parent.father_name', $token)
+                ->or_like('student.mobileno', $token)
+                ->or_like('parent.mobileno', $token);
+
+            $digits = preg_replace('/\D+/', '', $token);
+            if (strlen($digits) >= 2) {
+                $escapedDigits = $this->db->escape('%' . $this->db->escape_like_str($digits) . '%');
+                $this->db->or_where(
+                    "REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(student.mobileno, ' ', ''), '-', ''), '+', ''), '(', ''), ')', '') LIKE " . $escapedDigits,
+                    null,
+                    false
+                );
+                $this->db->or_where(
+                    "REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(parent.mobileno, ' ', ''), '-', ''), '+', ''), '(', ''), ')', '') LIKE " . $escapedDigits,
+                    null,
+                    false
+                );
+            }
+            $this->db->group_end();
+        }
+
+        return $this->db
+            ->order_by('student.first_name', 'asc')
+            ->order_by('student.last_name', 'asc')
+            ->limit(10)
+            ->get()
+            ->result_array();
     }
 
     // public function live_search()

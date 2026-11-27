@@ -14,7 +14,7 @@
 
 <?php $widget = (is_superadmin_loggedin() ? 4 : 6); ?>
 <?php if (is_superadmin_loggedin()): ?>
-    <section class="panel">
+    <section class="panel fee-collection-filter">
         <header class="panel-heading">
             <h4 class="panel-title"><?= translate('select_ground') ?></h4>
         </header>

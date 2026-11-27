@@ -14,6 +14,46 @@ class Exam_progress extends Admin_Controller
         $this->load->model('email_model');
     }
 
+    protected function teacher_report_section_allowed($branchID, $classID, $sectionID, $sessionID)
+    {
+        if (!is_teacher_loggedin()) {
+            return true;
+        }
+        $classSections = $this->app_lib->get_class_teacher_sections($branchID, $sessionID);
+        return isset($classSections[(int) $classID])
+            && in_array((int) $sectionID, array_map('intval', $classSections[(int) $classID]), true);
+    }
+
+    protected function filter_teacher_report_student_ids($studentIDs, $branchID, $classID, $sectionID, $sessionID)
+    {
+        if (!is_teacher_loggedin()) {
+            return $studentIDs;
+        }
+        if (!$this->teacher_report_section_allowed($branchID, $classID, $sectionID, $sessionID)) {
+            ajax_access_denied();
+            return array();
+        }
+        $studentIDs = is_array($studentIDs) ? $studentIDs : array($studentIDs);
+        $studentIDs = array_values(array_unique(array_filter(array_map('intval', $studentIDs))));
+        if (empty($studentIDs)) {
+            return array();
+        }
+        $this->db->select('student_id');
+        $this->db->from('enroll');
+        $this->db->where('branch_id', (int) $branchID);
+        $this->db->where('class_id', (int) $classID);
+        $this->db->where('section_id', (int) $sectionID);
+        $this->db->where('session_id', (int) $sessionID);
+        $this->db->where_in('student_id', $studentIDs);
+        $this->db->group_by('student_id');
+        $validIDs = array_map('intval', array_column($this->db->get()->result_array(), 'student_id'));
+        if (count($validIDs) !== count($studentIDs)) {
+            ajax_access_denied();
+            return array();
+        }
+        return $validIDs;
+    }
+
     public function marksheet()
     {
         if (!get_permission('progress_reports', 'is_view')) {
@@ -34,6 +74,9 @@ class Exam_progress extends Admin_Controller
                 $examID = $this->input->post('exam_id[]');
                 $classID = $this->input->post('class_id');
                 $sectionID = $this->input->post('section_id');
+                if (!$this->teacher_report_section_allowed($branchID, $classID, $sectionID, $sessionID)) {
+                    access_denied();
+                }
                 $this->db->select('e.roll,e.id as enrollID,s.*,c.name as category');
                 $this->db->from('enroll as e');
                 $this->db->join('student as s', 'e.student_id = s.id', 'inner');
@@ -44,6 +87,9 @@ class Exam_progress extends Admin_Controller
                 $this->db->where('e.section_id', $sectionID);
                 $this->db->where('e.branch_id', $branchID);
                 $this->db->where('s.active', 1);
+                $this->db->where('m.class_id', $classID);
+                $this->db->where('m.section_id', $sectionID);
+                $this->db->where('m.session_id', $sessionID);
                 $this->db->where_in('m.exam_id', $examID);
                 $this->db->group_by('m.student_id');
                 $this->db->order_by('e.id', 'ASC');
@@ -73,14 +119,24 @@ class Exam_progress extends Admin_Controller
                 ajax_access_denied();
             }
             $this->data['examArray'] = $this->input->post('exam_id[]');
-            $this->data['student_array'] = $this->input->post('student_id');
+            $branchID = $this->application_model->get_branch_id();
+            $classID = (int) $this->input->post('class_id');
+            $sectionID = (int) $this->input->post('section_id');
+            $sessionID = (int) $this->input->post('session_id');
+            $this->data['student_array'] = $this->filter_teacher_report_student_ids(
+                $this->input->post('student_id'),
+                $branchID,
+                $classID,
+                $sectionID,
+                $sessionID
+            );
             $this->data['remarks_array'] = $this->input->post('remarks');
-            $this->data['class_id'] = $this->input->post('class_id');
-            $this->data['section_id'] = $this->input->post('section_id');
+            $this->data['class_id'] = $classID;
+            $this->data['section_id'] = $sectionID;
             $this->data['print_date'] = $this->input->post('print_date');
-            $this->data['sessionID'] = $this->input->post('session_id');
+            $this->data['sessionID'] = $sessionID;
             $this->data['templateID'] = $this->input->post('template_id');
-            $this->data['branchID'] = $this->application_model->get_branch_id();
+            $this->data['branchID'] = $branchID;
             echo $this->load->view('exam_progress/reportCard', $this->data, true);
         }
     }
@@ -92,14 +148,24 @@ class Exam_progress extends Admin_Controller
                 ajax_access_denied();
             }
             $this->data['examArray'] = $this->input->post('exam_id[]');
-            $this->data['student_array'] = $this->input->post('student_id');
+            $branchID = $this->application_model->get_branch_id();
+            $classID = (int) $this->input->post('class_id');
+            $sectionID = (int) $this->input->post('section_id');
+            $sessionID = (int) $this->input->post('session_id');
+            $this->data['student_array'] = $this->filter_teacher_report_student_ids(
+                $this->input->post('student_id'),
+                $branchID,
+                $classID,
+                $sectionID,
+                $sessionID
+            );
             $this->data['remarks_array'] = $this->input->post('remarks');
-            $this->data['class_id'] = $this->input->post('class_id');
-            $this->data['section_id'] = $this->input->post('section_id');
+            $this->data['class_id'] = $classID;
+            $this->data['section_id'] = $sectionID;
             $this->data['print_date'] = $this->input->post('print_date');
-            $this->data['sessionID'] = $this->input->post('session_id');
+            $this->data['sessionID'] = $sessionID;
             $this->data['templateID'] = $this->input->post('template_id');
-            $this->data['branchID'] = $this->application_model->get_branch_id();
+            $this->data['branchID'] = $branchID;
             $html = $this->load->view('exam_progress/reportCard_PDF', $this->data, true);
 
             $this->load->library('html2pdf');

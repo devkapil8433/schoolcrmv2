@@ -27,6 +27,13 @@ class Branch_model extends MY_Model
         if (!isset($data['branch_id'])) {
             $this->db->insert('branch', $arrayBranch);
             $id = $this->db->insert_id();
+            // keep the school hierarchy intact for branches created from the legacy form
+            if ($this->db->table_exists('school')) {
+                $this->load->model('subscription_model');
+                $schoolID = $this->subscription_model->findOrCreateSchoolByName($data['school_name']);
+                $this->db->where('id', $id)->update('branch', array('school_id' => $schoolID));
+                $this->subscription_model->audit('branch_created', 'branch', $id, $schoolID, $id, null, $arrayBranch);
+            }
         } else {
             $id = $data['branch_id'];
             $this->db->where('id', $data['branch_id']);

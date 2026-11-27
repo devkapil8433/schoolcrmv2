@@ -23,7 +23,15 @@ defined('BASEPATH') OR exit('No direct script access allowed');
 | a PHP script and you can easily do that on your own.
 |
 */
-$config['base_url'] = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off' ? 'https://' : 'http://') . $_SERVER['HTTP_HOST'] . str_replace(basename($_SERVER['SCRIPT_NAME']), '', $_SERVER['SCRIPT_NAME']);
+$host = isset($_SERVER['HTTP_HOST']) ? $_SERVER['HTTP_HOST'] : '';
+if (PHP_SAPI !== 'cli' && preg_match('/^[a-z0-9][a-z0-9.\-]*(\:\d+)?$/i', $host)) {
+    // host-aware base URL: every hostname (localhost, 127.0.0.1, name.localhost) gets its own
+    // cookie jar, so different browser tabs can stay logged in as different users
+    $scheme = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
+    $config['base_url'] = $scheme . '://' . $host . '/schoolpilot360/';
+} else {
+    $config['base_url'] = 'http://localhost:8080/schoolpilot360/';
+}
 
 /*
 |--------------------------------------------------------------------------

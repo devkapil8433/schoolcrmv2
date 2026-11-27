@@ -135,9 +135,25 @@ class Attendance_model extends MY_Model
         return $uniqueHolidays;
     }
 
-    public function getDailyStudentReport($branchID = '', $date = '')
+    public function getDailyStudentReport($branchID = '', $date = '', $allowedClassSections = null)
     {
-        $sql = "SELECT class.name as `class_name`,section.name as `section_name`, SUM(CASE WHEN `status` = 'P' THEN 1 ELSE 0 END) AS 'present',SUM(CASE WHEN `status` = 'A' THEN 1 ELSE 0 END) AS 'absent',SUM(CASE WHEN `status` = 'L' THEN 1 ELSE 0 END) AS 'late',SUM(CASE WHEN `status` = 'HD' THEN 1 ELSE 0 END) AS 'half_day' FROM `student_attendance` JOIN `enroll` on student_attendance.enroll_id=enroll.id INNER JOIN `sections_allocation` on (enroll.class_id=sections_allocation.class_id and enroll.section_id=sections_allocation.section_id) inner join `class` on class.id=sections_allocation.class_id INNER JOIN `section` on section.id=sections_allocation.section_id WHERE `enroll`.`session_id`=" . $this->db->escape(get_session_id()) . " AND enroll.branch_id = " . $this->db->escape($branchID) . " AND student_attendance.date = " . $this->db->escape($date) . " GROUP BY sections_allocation.id ORDER BY sections_allocation.class_id";
+        $sql = "SELECT class.name as `class_name`,section.name as `section_name`, SUM(CASE WHEN `status` = 'P' THEN 1 ELSE 0 END) AS 'present',SUM(CASE WHEN `status` = 'A' THEN 1 ELSE 0 END) AS 'absent',SUM(CASE WHEN `status` = 'L' THEN 1 ELSE 0 END) AS 'late',SUM(CASE WHEN `status` = 'HD' THEN 1 ELSE 0 END) AS 'half_day' FROM `student_attendance` JOIN `enroll` on student_attendance.enroll_id=enroll.id INNER JOIN `sections_allocation` on (enroll.class_id=sections_allocation.class_id and enroll.section_id=sections_allocation.section_id) inner join `class` on class.id=sections_allocation.class_id INNER JOIN `section` on section.id=sections_allocation.section_id WHERE `enroll`.`session_id`=" . $this->db->escape(get_session_id()) . " AND enroll.branch_id = " . $this->db->escape($branchID) . " AND student_attendance.date = " . $this->db->escape($date);
+        if (is_array($allowedClassSections)) {
+            if (empty($allowedClassSections)) {
+                return array();
+            }
+            $conditions = array();
+            foreach ($allowedClassSections as $classID => $sectionIDs) {
+                foreach ((array) $sectionIDs as $sectionID) {
+                    $conditions[] = '(enroll.class_id = ' . (int) $classID . ' AND enroll.section_id = ' . (int) $sectionID . ')';
+                }
+            }
+            if (empty($conditions)) {
+                return array();
+            }
+            $sql .= ' AND (' . implode(' OR ', $conditions) . ')';
+        }
+        $sql .= ' GROUP BY sections_allocation.id ORDER BY sections_allocation.class_id';
         $query = $this->db->query($sql);
         $count_studentattendance = $query->result();
         return $count_studentattendance;

@@ -1,0 +1,385 @@
+/**
+ * Jitendra Debugger — CI4-inspired toolbar (EdSchool MY_Profiler).
+ * Isolated under .ci-debug-toolbar so site CSS does not bleed in.
+ */
+.ci-debug-toolbar {
+    --ci-dbg-bg: #1d1f21;
+    --ci-dbg-bg2: #2a2d31;
+    --ci-dbg-border: #3a3f44;
+    --ci-dbg-text: #e8eaed;
+    --ci-dbg-muted: #9aa0a6;
+    --ci-dbg-accent: #dd4814;
+    --ci-dbg-accent2: #f0ad4e;
+    --ci-dbg-panel: #151718;
+    --ci-dbg-row: #22262a;
+    --ci-dbg-row-alt: #1b1e21;
+    --ci-dbg-code: #b5e853;
+    all: initial;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif !important;
+    font-size: 13px !important;
+    line-height: 1.4 !important;
+    color: var(--ci-dbg-text) !important;
+    z-index: 99999 !important;
+}
+
+.ci-debug-toolbar *,
+.ci-debug-toolbar *::before,
+.ci-debug-toolbar *::after {
+    box-sizing: border-box !important;
+}
+
+.ci-debug-toolbar__icon {
+    position: fixed !important;
+    right: 14px !important;
+    bottom: 14px !important;
+    z-index: 100000 !important;
+    width: 42px !important;
+    height: 42px !important;
+    border: 0 !important;
+    border-radius: 50% !important;
+    background: var(--ci-dbg-accent) !important;
+    color: #fff !important;
+    box-shadow: 0 4px 18px rgba(0, 0, 0, 0.35) !important;
+    cursor: pointer !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    padding: 0 !important;
+}
+
+.ci-debug-toolbar__icon-mark,
+.ci-debug-toolbar__brand-mark {
+    font-weight: 800 !important;
+    font-size: 14px !important;
+    letter-spacing: -0.03em !important;
+    color: inherit !important;
+}
+
+.ci-debug-toolbar__bar {
+    position: fixed !important;
+    left: 0 !important;
+    right: 0 !important;
+    bottom: 0 !important;
+    z-index: 100001 !important;
+    display: flex !important;
+    flex-direction: column !important;
+    max-height: min(70vh, 640px) !important;
+    background: var(--ci-dbg-bg) !important;
+    border-top: 3px solid var(--ci-dbg-accent) !important;
+    box-shadow: 0 -8px 28px rgba(0, 0, 0, 0.35) !important;
+    color: var(--ci-dbg-text) !important;
+}
+
+.ci-debug-toolbar__bar[hidden],
+.ci-debug-toolbar__panel[hidden] {
+    display: none !important;
+}
+
+.ci-debug-toolbar__toolbar {
+    display: flex !important;
+    flex-wrap: nowrap !important;
+    align-items: center !important;
+    gap: 2px !important;
+    min-height: 40px !important;
+    padding: 0 8px !important;
+    background: var(--ci-dbg-bg2) !important;
+    border-bottom: 1px solid var(--ci-dbg-border) !important;
+    overflow-x: auto !important;
+}
+
+.ci-debug-toolbar__brand {
+    display: inline-flex !important;
+    align-items: center !important;
+    gap: 6px !important;
+    margin-right: 8px !important;
+    padding: 0 8px !important;
+    color: var(--ci-dbg-accent2) !important;
+    white-space: nowrap !important;
+}
+
+.ci-debug-toolbar__brand-text {
+    font-size: 12px !important;
+    font-weight: 700 !important;
+    text-transform: none !important;
+    letter-spacing: 0.01em !important;
+}
+
+.ci-debug-toolbar__tab {
+    appearance: none !important;
+    border: 0 !important;
+    background: transparent !important;
+    color: var(--ci-dbg-muted) !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    gap: 6px !important;
+    height: 40px !important;
+    padding: 0 10px !important;
+    cursor: pointer !important;
+    white-space: nowrap !important;
+    border-bottom: 2px solid transparent !important;
+}
+
+.ci-debug-toolbar__tab:hover {
+    color: #fff !important;
+    background: rgba(255, 255, 255, 0.04) !important;
+}
+
+.ci-debug-toolbar__tab.is-active {
+    color: #fff !important;
+    border-bottom-color: var(--ci-dbg-accent) !important;
+}
+
+.ci-debug-toolbar__tab-label {
+    font-size: 12px !important;
+    font-weight: 600 !important;
+}
+
+.ci-debug-toolbar__badge {
+    display: inline-block !important;
+    min-width: 1.4em !important;
+    padding: 1px 6px !important;
+    border-radius: 999px !important;
+    background: var(--ci-dbg-accent) !important;
+    color: #fff !important;
+    font-size: 11px !important;
+    font-weight: 700 !important;
+    line-height: 1.4 !important;
+    text-align: center !important;
+}
+
+.ci-debug-toolbar__meta {
+    display: inline-flex !important;
+    align-items: center !important;
+    gap: 12px !important;
+    margin-left: auto !important;
+    padding: 0 8px !important;
+    color: var(--ci-dbg-muted) !important;
+    font-size: 12px !important;
+    white-space: nowrap !important;
+}
+
+.ci-debug-toolbar__close {
+    appearance: none !important;
+    border: 0 !important;
+    background: transparent !important;
+    color: var(--ci-dbg-muted) !important;
+    width: 36px !important;
+    height: 36px !important;
+    font-size: 22px !important;
+    line-height: 1 !important;
+    cursor: pointer !important;
+}
+
+.ci-debug-toolbar__close:hover {
+    color: #fff !important;
+}
+
+.ci-debug-toolbar__views-toggle {
+    appearance: none !important;
+    border: 1px solid var(--ci-dbg-border) !important;
+    background: transparent !important;
+    color: var(--ci-dbg-muted) !important;
+    height: 28px !important;
+    margin: 0 4px !important;
+    padding: 0 10px !important;
+    border-radius: 999px !important;
+    font-size: 11px !important;
+    font-weight: 700 !important;
+    cursor: pointer !important;
+    white-space: nowrap !important;
+}
+
+.ci-debug-toolbar__views-toggle:hover {
+    color: #fff !important;
+    border-color: var(--ci-dbg-accent2) !important;
+}
+
+.ci-debug-toolbar__views-toggle.is-active {
+    background: var(--ci-dbg-accent) !important;
+    border-color: var(--ci-dbg-accent) !important;
+    color: #fff !important;
+}
+
+.ci-debug-toolbar__panel {
+    flex: 1 1 auto !important;
+    overflow: auto !important;
+    padding: 14px 16px 20px !important;
+    background: var(--ci-dbg-panel) !important;
+    color: var(--ci-dbg-text) !important;
+}
+
+.ci-debug-toolbar__panel h2 {
+    margin: 0 0 12px !important;
+    padding: 0 !important;
+    font-size: 16px !important;
+    font-weight: 700 !important;
+    color: #fff !important;
+    border: 0 !important;
+}
+
+.ci-debug-toolbar__panel h3 {
+    margin: 16px 0 8px !important;
+    padding: 0 !important;
+    font-size: 13px !important;
+    font-weight: 700 !important;
+    color: var(--ci-dbg-accent2) !important;
+    border: 0 !important;
+}
+
+.ci-debug-toolbar__muted {
+    color: var(--ci-dbg-muted) !important;
+    font-weight: 500 !important;
+    font-size: 12px !important;
+}
+
+.ci-debug-toolbar__summary,
+.ci-debug-toolbar__empty {
+    margin: 0 0 12px !important;
+    color: var(--ci-dbg-muted) !important;
+}
+
+.ci-debug-toolbar__table {
+    width: 100% !important;
+    border-collapse: collapse !important;
+    margin: 0 0 8px !important;
+    font-size: 12px !important;
+}
+
+.ci-debug-toolbar__table th,
+.ci-debug-toolbar__table td {
+    padding: 7px 10px !important;
+    border-bottom: 1px solid var(--ci-dbg-border) !important;
+    text-align: left !important;
+    vertical-align: top !important;
+    color: var(--ci-dbg-text) !important;
+    background: var(--ci-dbg-row) !important;
+}
+
+.ci-debug-toolbar__table thead th {
+    background: var(--ci-dbg-bg2) !important;
+    color: var(--ci-dbg-muted) !important;
+    font-weight: 700 !important;
+    text-transform: uppercase !important;
+    font-size: 11px !important;
+    letter-spacing: 0.03em !important;
+}
+
+.ci-debug-toolbar__table tbody tr:nth-child(even) th,
+.ci-debug-toolbar__table tbody tr:nth-child(even) td {
+    background: var(--ci-dbg-row-alt) !important;
+}
+
+.ci-debug-toolbar__table th {
+    width: 140px !important;
+    color: var(--ci-dbg-muted) !important;
+    font-weight: 600 !important;
+}
+
+.ci-debug-toolbar__num {
+    width: 90px !important;
+    white-space: nowrap !important;
+    font-variant-numeric: tabular-nums !important;
+    color: var(--ci-dbg-accent2) !important;
+}
+
+.ci-debug-toolbar__sql,
+.ci-debug-toolbar code,
+.ci-debug-toolbar__pre {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace !important;
+    font-size: 12px !important;
+    color: var(--ci-dbg-code) !important;
+    background: transparent !important;
+    border: 0 !important;
+    white-space: pre-wrap !important;
+    word-break: break-word !important;
+    margin: 0 !important;
+    padding: 0 !important;
+}
+
+.ci-debug-toolbar__barline {
+    height: 8px !important;
+    min-width: 80px !important;
+    background: #2f343a !important;
+    border-radius: 999px !important;
+    overflow: hidden !important;
+}
+
+.ci-debug-toolbar__barline > span {
+    display: block !important;
+    height: 100% !important;
+    background: linear-gradient(90deg, var(--ci-dbg-accent), var(--ci-dbg-accent2)) !important;
+}
+
+.ci-debug-toolbar__pill {
+    display: inline-block !important;
+    margin: 0 4px 4px 0 !important;
+    padding: 1px 7px !important;
+    border-radius: 999px !important;
+    font-size: 10px !important;
+    font-weight: 700 !important;
+    letter-spacing: 0.02em !important;
+    background: #3a3f44 !important;
+    color: #fff !important;
+    text-transform: uppercase !important;
+}
+
+.ci-debug-toolbar__pill.is-warn,
+.ci-debug-toolbar__pill.is-error,
+tr.is-slow .ci-debug-toolbar__num {
+    background: #b45309 !important;
+}
+
+.ci-debug-toolbar__pill.is-dup {
+    background: #7c3aed !important;
+}
+
+.ci-debug-toolbar__pill.is-debug {
+    background: #2563eb !important;
+}
+
+.ci-debug-toolbar__pill.is-info {
+    background: #0f766e !important;
+}
+
+.ci-debug-toolbar__pill.is-other {
+    background: #52525b !important;
+}
+
+.ci-debug-toolbar__list {
+    margin: 0 0 12px 1.1rem !important;
+    padding: 0 !important;
+    color: var(--ci-dbg-text) !important;
+}
+
+.ci-debug-toolbar__list li {
+    margin: 0 0 4px !important;
+}
+
+@media (max-width: 767.98px) {
+    .ci-debug-toolbar__brand-text,
+    .ci-debug-toolbar__meta {
+        display: none !important;
+    }
+}
+
+/* CI4-style live view outlines (toggled via "Views on page") */
+.debug-view.show-view {
+    border: 1px solid #dd4814 !important;
+    margin: 4px !important;
+    position: relative !important;
+}
+
+.debug-view-path {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace !important;
+    font-size: 11px !important;
+    letter-spacing: normal !important;
+    min-height: 16px !important;
+    padding: 3px 8px !important;
+    text-align: left !important;
+    background-color: #fdc894 !important;
+    color: #434343 !important;
+    display: block !important;
+    position: sticky !important;
+    top: 0 !important;
+    z-index: 99990 !important;
+}

@@ -5,6 +5,43 @@
 	$branch_query = (!empty($branch_id)) ? '?branch_id=' . urlencode($branch_id) : '';
 	$add_url = base_url('digital_diary/lesson_add') . $branch_query;
 ?>
+<style type="text/css">
+	.badge-custom {
+		font-weight: 700 !important;
+		font-size: 12px !important;
+		padding: 5px 12px !important;
+		border-radius: 50px !important;
+		box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+		display: inline-block;
+		vertical-align: middle;
+		margin-left: 5px;
+		text-transform: capitalize;
+	}
+	.badge-subject {
+		background: linear-gradient(135deg, #FF9800 0%, #F57C00 100%) !important;
+		color: #fff !important;
+	}
+	.badge-lesson {
+		background: linear-gradient(135deg, #00BCD4 0%, #0097A7 100%) !important;
+		color: #fff !important;
+	}
+	.badge-done {
+		background: linear-gradient(135deg, #4CAF50 0%, #388E3C 100%) !important;
+		color: #fff !important;
+	}
+	.badge-pending {
+		background: linear-gradient(135deg, #9E9E9E 0%, #757575 100%) !important;
+		color: #fff !important;
+	}
+	.panel-heading.collapsed .toggle-indicator {
+		transform: rotate(0deg);
+		transition: transform 0.3s;
+	}
+	.panel-heading:not(.collapsed) .toggle-indicator {
+		transform: rotate(180deg);
+		transition: transform 0.3s;
+	}
+</style>
 <div class="row">
 	<div class="col-md-12">
 		<?php if (is_superadmin_loggedin()): ?>
@@ -70,10 +107,10 @@
 								<strong><?=html_escape($cs['class_name'])?></strong>
 								<span class="text-muted">&mdash;</span>
 								<?=html_escape($cs['section_name'])?>
-								<span class="pull-right">
-									<span class="label label-primary"><?=$subjectCount?> <?=$subjectCount === 1 ? 'Subject' : 'Subjects'?></span>
-									<span class="label label-info"><?=$lessonCount?> <?=$lessonCount === 1 ? 'Lesson' : 'Lessons'?></span>
-									<span class="label label-success"><?=$doneCount?>/<?=$lessonCount?> Done (<?=$csPct?>%)</span>
+								<span class="pull-right hidden-xs">
+									<span class="badge-custom badge-subject"><?=$subjectCount?> <?=$subjectCount === 1 ? 'Subject' : 'Subjects'?></span>
+									<span class="badge-custom badge-lesson"><?=$lessonCount?> <?=$lessonCount === 1 ? 'Lesson' : 'Lessons'?></span>
+									<span class="badge-custom badge-done"><?=$doneCount?>/<?=$lessonCount?> Done (<?=$csPct?>%)</span>
 									<i class="fas fa-chevron-down toggle-indicator text-muted" style="margin-left: 10px; width: 12px;"></i>
 								</span>
 							</h5>
@@ -105,9 +142,9 @@
 												<?php if (!empty($subj['subject_group'])): ?>
 													<small class="text-muted">(<?=html_escape($subj['subject_group'])?>)</small>
 												<?php endif; ?>
-												<span class="pull-right">
-													<span class="label label-info"><?=$totalLessons?> <?=$totalLessons === 1 ? 'Lesson' : 'Lessons'?></span>
-													<span class="label <?= ($totalLessons > 0 && $subjDone === $totalLessons) ? 'label-success' : 'label-default' ?>"><?=$subjDone?>/<?=$totalLessons?> Done</span>
+												<span class="pull-right hidden-xs">
+													<span class="badge-custom badge-lesson"><?=$totalLessons?> <?=$totalLessons === 1 ? 'Lesson' : 'Lessons'?></span>
+													<span class="badge-custom <?= ($totalLessons > 0 && $subjDone === $totalLessons) ? 'badge-done' : 'badge-pending' ?>"><?=$subjDone?>/<?=$totalLessons?> Done</span>
 													<i class="fas fa-chevron-down toggle-indicator text-muted" style="margin-left: 10px; width: 12px;"></i>
 												</span>
 											</h5>

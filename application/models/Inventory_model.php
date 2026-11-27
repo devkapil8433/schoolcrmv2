@@ -99,7 +99,7 @@ class Inventory_model extends MY_Model
         $arrayInvoice = array(
             'supplier_id' => $data['supplier_id'],
             'bill_no' => $data['bill_no'],
-            'store_id' => $data['store_id'],
+            'store_id' => !empty($data['store_id']) ? $data['store_id'] : null,
             'remarks' => $data['remarks'],
             'total' => $data['grand_total'],
             'discount' => $data['total_discount'],
@@ -199,10 +199,9 @@ class Inventory_model extends MY_Model
 
     public function get_purchase_report($branch_id, $supplier_id = '', $payment_status = '', $start = '', $end = '')
     {
-        $this->db->select('purchase_bill.*,product_store.name as store_name,IFNULL(SUM(purchase_bill.total - purchase_bill.discount),0) as net_payable,product_supplier.name as supplier_name');
+        $this->db->select('purchase_bill.*,IFNULL(SUM(purchase_bill.total - purchase_bill.discount),0) as net_payable,product_supplier.name as supplier_name');
         $this->db->from('purchase_bill');
         $this->db->join('product_supplier', 'product_supplier.id = purchase_bill.supplier_id', 'left');
-         $this->db->join('product_store', 'purchase_bill.store_id = product_store.id', 'left');
         if ($supplier_id != 'all') {
             $this->db->where('purchase_bill.supplier_id', $supplier_id);
         }

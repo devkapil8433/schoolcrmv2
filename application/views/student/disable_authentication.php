@@ -24,7 +24,7 @@
 						<div class="form-group">
 							<label class="control-label"><?=translate('class')?> <span class="required">*</span></label>
 							<?php
-								$arrayClass = $this->app_lib->getClass($branch_id);
+								$arrayClass = is_teacher_loggedin() ? $this->app_lib->get_class_teacher_class_options($branch_id) : $this->app_lib->getClass($branch_id);
 								echo form_dropdown("class_id", $arrayClass, set_value('class_id'), "class='form-control' id='class_id' required onchange='getSectionByClass(this.value,1)'
 								data-plugin-selectTwo data-width='100%'");
 							?>
@@ -34,7 +34,7 @@
 						<div class="form-group">
 							<label class="control-label"><?=translate('section')?> <span class="required">*</span></label>
 							<?php
-								$arraySection = $this->app_lib->getSections(set_value('class_id'), true);
+								$arraySection = is_teacher_loggedin() ? $this->app_lib->get_class_teacher_section_options(set_value('class_id')) : $this->app_lib->getSections(set_value('class_id'), true);
 								echo form_dropdown("section_id", $arraySection, set_value('section_id'), "class='form-control' id='section_id' required
 								data-plugin-selectTwo data-width='100%'");
 							?>

@@ -31,6 +31,9 @@
 	?>
 	<!-- theme css -->
 	<link rel="stylesheet" href="<?php echo asset_url('assets/css/ramom.css');?>">
+	<?php if ((isset($main_menu) && in_array($main_menu, array('fees', 'fees_structure', 'fees_repots'), true)) || in_array(strtolower($this->router->fetch_class()), array('fees', 'fees_structure'), true)): ?>
+		<link rel="stylesheet" href="<?php echo asset_url('assets/css/fee-collection-ui.css?v=3');?>">
+	<?php endif; ?>
 	<?php if ($theme_config["border_mode"] == 'false'): ?>
 		<link rel="stylesheet" href="<?php echo asset_url('assets/css/skins/square-borders.css');?>">
 	<?php endif; ?>

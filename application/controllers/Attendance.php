@@ -4,6 +4,7 @@ defined('BASEPATH') or exit('No direct script access allowed');
 class Attendance extends Admin_Controller
 {
     protected $getAttendanceType;
+    protected $teacherClassSections;
     public function __construct()
     {
         parent::__construct();
@@ -47,6 +48,9 @@ class Attendance extends Admin_Controller
             if ($this->form_validation->run() == true) {
                 $classID = $this->input->post('class_id');
                 $sectionID = $this->input->post('section_id');
+                if (!$this->teacher_can_access_class_section($classID, $sectionID)) {
+                    access_denied();
+                }
                 $date = $this->input->post('date');
                 $this->data['date'] = $date;
                 $this->data['attendencelist'] = $this->attendance_model->getStudentAttendence($classID, $sectionID, $date, $branchID);
@@ -57,9 +61,36 @@ class Attendance extends Admin_Controller
         if (isset($_POST['save'])) {
             $attendance = $this->input->post('attendance');
             $date = $this->input->post('date');
+            foreach ((array) $attendance as $value) {
+                if (!is_teacher_loggedin()) {
+                    continue;
+                }
+                $enrollID = isset($value['enroll_id']) ? (int) $value['enroll_id'] : 0;
+                $enroll = $this->db->get_where('enroll', array(
+                    'id' => $enrollID,
+                    'branch_id' => (int) $branchID,
+                    'session_id' => (int) get_session_id(),
+                ))->row_array();
+                if (empty($enroll)
+                    || (int) $enroll['student_id'] !== (int) (isset($value['student_id']) ? $value['student_id'] : 0)
+                    || !$this->teacher_can_access_class_section($enroll['class_id'], $enroll['section_id'])) {
+                    access_denied();
+                }
+                if (!empty($value['attendance_id'])) {
+                    $existingAttendance = $this->db->get_where('student_attendance', array(
+                        'id' => (int) $value['attendance_id'],
+                        'enroll_id' => $enrollID,
+                        'date' => $date,
+                        'branch_id' => (int) $branchID,
+                    ))->row();
+                    if (empty($existingAttendance)) {
+                        access_denied();
+                    }
+                }
+            }
             $hasDisciplineColumns = $this->db->field_exists('discipline_dress', 'student_attendance')
                 && $this->db->field_exists('discipline_conduct', 'student_attendance');
-            foreach ($attendance as $key => $value) {
+            foreach ((array) $attendance as $key => $value) {
                 $attStatus = (isset($value['status']) ? $value['status'] : "");
                 $studentID = $value['student_id'];
                 $arrayAttendance = array(
@@ -77,6 +108,9 @@ class Attendance extends Admin_Controller
                     $this->db->insert('student_attendance', $arrayAttendance);
                 } else {
                     $this->db->where('id', $value['attendance_id']);
+                    $this->db->where('enroll_id', $value['enroll_id']);
+                    $this->db->where('date', $date);
+                    $this->db->where('branch_id', $branchID);
                     $updateData = array('status' => $attStatus, 'remark' => $value['remark']);
                     if ($hasDisciplineColumns) {
                         $updateData['discipline_dress'] = !empty($value['discipline_dress']) ? 1 : 0;
@@ -188,6 +222,9 @@ class Attendance extends Admin_Controller
             if ($this->form_validation->run() == true) {
                 $classID = $this->input->post('class_id');
                 $sectionID = $this->input->post('section_id');
+                if (!$this->teacher_can_access_class_section($classID, $sectionID)) {
+                    access_denied();
+                }
                 $examID = $this->input->post('exam_id');
                 $subjectID = $this->input->post('subject_id');
                 $this->data['class_id'] = $classID;
@@ -199,9 +236,40 @@ class Attendance extends Admin_Controller
         }
 
         if (isset($_POST['save'])) {
-            $attendance = $this->input->post('attendance');
+            $classID = (int) $this->input->post('class_id');
+            $sectionID = (int) $this->input->post('section_id');
+            if (!$this->teacher_can_access_class_section($classID, $sectionID)) {
+                access_denied();
+            }
+            $attendance = (array) $this->input->post('attendance');
             $subjectID = $this->input->post('subject_id');
             $examID = $this->input->post('exam_id');
+            if (is_teacher_loggedin()) {
+                foreach ($attendance as $value) {
+                    $studentEnrollment = $this->db->get_where('enroll', array(
+                        'student_id' => (int) (isset($value['student_id']) ? $value['student_id'] : 0),
+                        'class_id' => $classID,
+                        'section_id' => $sectionID,
+                        'branch_id' => (int) $branchID,
+                        'session_id' => (int) get_session_id(),
+                    ))->row();
+                    if (empty($studentEnrollment)) {
+                        access_denied();
+                    }
+                    if (!empty($value['attendance_id'])) {
+                        $existingAttendance = $this->db->get_where('exam_attendance', array(
+                            'id' => (int) $value['attendance_id'],
+                            'student_id' => (int) $value['student_id'],
+                            'exam_id' => (int) $examID,
+                            'subject_id' => (int) $subjectID,
+                            'branch_id' => (int) $branchID,
+                        ))->row();
+                        if (empty($existingAttendance)) {
+                            access_denied();
+                        }
+                    }
+                }
+            }
             foreach ($attendance as $key => $value) {
                 $attStatus = (isset($value['status']) ? $value['status'] : "");
                 $arrayAttendance = array(
@@ -216,6 +284,10 @@ class Attendance extends Admin_Controller
                     $this->db->insert('exam_attendance', $arrayAttendance);
                 } else {
                     $this->db->where('id', $value['attendance_id']);
+                    $this->db->where('student_id', $value['student_id']);
+                    $this->db->where('exam_id', $examID);
+                    $this->db->where('subject_id', $subjectID);
+                    $this->db->where('branch_id', $branchID);
                     $this->db->update('exam_attendance', array('status' => $attStatus, 'remark' => $value['remark']));
                 }
                 // send student absent then sms
@@ -248,6 +320,9 @@ class Attendance extends Admin_Controller
         if ($_POST) {
             $this->data['class_id'] = $this->input->post('class_id');
             $this->data['section_id'] = $this->input->post('section_id');
+            if (!$this->teacher_can_access_class_section($this->data['class_id'], $this->data['section_id'])) {
+                access_denied();
+            }
             $this->data['month'] = date('m', strtotime($this->input->post('timestamp')));
             $this->data['year'] = date('Y', strtotime($this->input->post('timestamp')));
             $this->data['days'] = date('t', strtotime($this->data['year'] . "-" . $this->data['month']));
@@ -278,7 +353,14 @@ class Attendance extends Admin_Controller
             $this->form_validation->set_rules('date', translate('date'), 'trim|required|callback_get_valid_date');
             if ($this->form_validation->run() == true) {
                 $this->data['date'] = $this->input->post('date');
-                $this->data['attendancelist'] = $this->attendance_model->getDailyStudentReport($branchID, $this->data['date']);
+                $allowedClassSections = is_teacher_loggedin()
+                    ? $this->app_lib->get_class_teacher_sections($branchID)
+                    : null;
+                $this->data['attendancelist'] = $this->attendance_model->getDailyStudentReport(
+                    $branchID,
+                    $this->data['date'],
+                    $allowedClassSections
+                );
             }
         }
         $this->data['branch_id'] = $branchID;
@@ -316,6 +398,9 @@ class Attendance extends Admin_Controller
 
                 $this->data['class_id'] = $this->input->post('class_id');
                 $this->data['section_id'] = $this->input->post('section_id');
+                if (!$this->teacher_can_access_class_section($this->data['class_id'], $this->data['section_id'])) {
+                    access_denied();
+                }
                 $this->data['start'] = $start;
                 $this->data['end'] = $end;
                 $this->data['studentlist'] = $this->application_model->getStudentListByClassSection($this->data['class_id'], $this->data['section_id'], $branchID);
@@ -369,6 +454,9 @@ class Attendance extends Admin_Controller
         if ($_POST) {
             $this->data['class_id'] = $this->input->post('class_id');
             $this->data['section_id'] = $this->input->post('section_id');
+            if (!$this->teacher_can_access_class_section($this->data['class_id'], $this->data['section_id'])) {
+                access_denied();
+            }
             $this->data['exam_id'] = $this->input->post('exam_id');
             $this->data['subject_id'] = $this->input->post('subject_id');
             $this->data['branch_id'] = $this->application_model->get_branch_id();
@@ -379,6 +467,19 @@ class Attendance extends Admin_Controller
         $this->data['sub_page'] = 'attendance/exam_report';
         $this->data['main_menu'] = 'attendance_report';
         $this->load->view('layout/index', $this->data);
+    }
+
+    protected function teacher_can_access_class_section($classID, $sectionID)
+    {
+        if (!is_teacher_loggedin()) {
+            return true;
+        }
+        if ($this->teacherClassSections === null) {
+            $this->teacherClassSections = $this->app_lib->get_class_teacher_sections();
+        }
+        $classSections = $this->teacherClassSections;
+        return isset($classSections[(int) $classID])
+            && in_array((int) $sectionID, $classSections[(int) $classID], true);
     }
 
     public function get_valid_date($date)

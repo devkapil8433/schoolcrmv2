@@ -353,13 +353,35 @@ class Digital_diary_model extends MY_Model
         $this->db->where('l.section_id', (int) $sectionID);
         $this->db->where('l.subject_id', (int) $subjectID);
         if (!empty($branchID)) {
+            $this->db->group_start();
             $this->db->where('l.branch_id', $branchID);
+            $this->db->or_where('l.branch_id', 0);
+            $this->db->group_end();
         }
         if ($this->db->field_exists('sort_order', 'digital_diary_lesson')) {
             $this->db->order_by('l.sort_order', 'ASC');
         }
         $this->db->order_by('l.id', 'ASC');
-        return $this->db->get()->result_array();
+        $rows = $this->db->get()->result_array();
+        $lessons = array();
+        $seen = array();
+        foreach ($rows as $row) {
+            $key = strtolower(trim((string) $row['lesson_no'])) . '|' . strtolower(trim((string) $row['lesson_name']));
+            $isBranchLesson = (int) $row['branch_id'] === (int) $branchID;
+            if (isset($seen[$key])) {
+                if ($isBranchLesson && !$seen[$key]['is_branch_lesson']) {
+                    $lessons[$seen[$key]['index']] = $row;
+                    $seen[$key]['is_branch_lesson'] = true;
+                }
+                continue;
+            }
+            $lessons[] = $row;
+            $seen[$key] = array(
+                'index' => count($lessons) - 1,
+                'is_branch_lesson' => $isBranchLesson,
+            );
+        }
+        return $lessons;
     }
 
     /**
@@ -1570,8 +1592,120 @@ class Digital_diary_model extends MY_Model
             $qIds = isset($data['learning_question_ids']) ? $data['learning_question_ids'] : array();
             $this->replaceTodayWorkAssignments($todayWorkId, $qIds, $isTest);
         }
-
         return $todayWorkId > 0 ? $todayWorkId : true;
+    }
+
+    /**
+     * Delete a scoped Today's Work row and its linked student assignments/submissions.
+     *
+     * @return array|false
+     */
+    public function deleteTodayWorkEntry($scope)
+    {
+        if (!$this->db->table_exists('digital_diary_today_work')) {
+            return false;
+        }
+
+        $workID = (int) $scope['id'];
+        $branchID = (int) $scope['branch_id'];
+        $sessionID = (int) $scope['session_id'];
+        $workDate = $scope['work_date'];
+        $classID = (int) $scope['class_id'];
+        $sectionID = (int) $scope['section_id'];
+        $subjectID = (int) $scope['subject_id'];
+        $where = array(
+            'id' => $workID,
+            'branch_id' => $branchID,
+            'session_id' => $sessionID,
+            'work_date' => $workDate,
+            'class_id' => $classID,
+            'section_id' => $sectionID,
+            'subject_id' => $subjectID,
+        );
+        $work = $this->db->get_where('digital_diary_today_work', $where)->row_array();
+        if (empty($work)) {
+            return false;
+        }
+
+        $fileRefs = array();
+        foreach (array('cw_attachment', 'hw_attachment') as $field) {
+            if (!empty($work[$field])) {
+                $fileRefs[] = array('directory' => 'digital_diary_today_work', 'name' => $work[$field]);
+            }
+        }
+        if ($this->db->table_exists('digital_diary_student_submission')) {
+            $this->db->select('photo');
+            $this->db->where('today_work_id', $workID);
+            foreach ($this->db->get('digital_diary_student_submission')->result_array() as $submission) {
+                if (!empty($submission['photo'])) {
+                    $fileRefs[] = array('directory' => 'digital_diary_submit', 'name' => $submission['photo']);
+                }
+            }
+        }
+
+        $lessonIDs = array();
+        if (!empty($work['lesson_id'])) {
+            $lessonIDs[] = (int) $work['lesson_id'];
+        }
+        if (!empty($work['lesson_ids'])) {
+            $lessonIDs = array_merge($lessonIDs, array_map('intval', explode(',', $work['lesson_ids'])));
+        }
+        $lessonIDs = array_values(array_unique(array_filter($lessonIDs)));
+
+        $this->db->trans_begin();
+        if ($this->db->table_exists('digital_diary_today_work_assignment')) {
+            $this->db->where('today_work_id', $workID)->delete('digital_diary_today_work_assignment');
+        }
+        if ($this->db->table_exists('digital_diary_student_submission')) {
+            $this->db->where('today_work_id', $workID)->delete('digital_diary_student_submission');
+        }
+        if (!empty($lessonIDs) && $this->db->table_exists('digital_diary_lesson_completion')) {
+            $this->db->where(array(
+                'branch_id' => $branchID,
+                'session_id' => $sessionID,
+                'work_date' => $workDate,
+                'class_id' => $classID,
+                'section_id' => $sectionID,
+                'subject_id' => $subjectID,
+            ));
+            $this->db->where_in('lesson_id', $lessonIDs)->delete('digital_diary_lesson_completion');
+        }
+        if (!empty($lessonIDs)
+            && $this->db->table_exists('digital_diary_teacher_activity_log')
+            && $this->db->field_exists('lesson_id', 'digital_diary_teacher_activity_log')) {
+            $this->db->where(array(
+                'branch_id' => $branchID,
+                'session_id' => $sessionID,
+                'activity_date' => $workDate,
+                'class_id' => $classID,
+                'section_id' => $sectionID,
+                'subject_id' => $subjectID,
+            ));
+            $this->db->where_in('lesson_id', $lessonIDs)->delete('digital_diary_teacher_activity_log');
+        }
+        $this->db->delete('digital_diary_today_work', $where);
+        if (!$this->db->trans_status()) {
+            $this->db->trans_rollback();
+            return false;
+        }
+        if (!$this->db->trans_commit()) {
+            $this->db->trans_rollback();
+            return false;
+        }
+
+        $cleanupWarnings = array();
+        foreach ($fileRefs as $fileRef) {
+            $fileName = (string) $fileRef['name'];
+            if ($fileName === '' || basename($fileName) !== $fileName) {
+                $cleanupWarnings[] = 'An attachment path was invalid and could not be removed.';
+                continue;
+            }
+            $path = FCPATH . 'uploads/attachments/' . $fileRef['directory'] . '/' . $fileName;
+            if (is_file($path) && !@unlink($path)) {
+                $cleanupWarnings[] = 'An uploaded file could not be removed: ' . $fileName;
+            }
+        }
+        return array('cleanup_warnings' => $cleanupWarnings);
     }
 
     /**
@@ -1772,6 +1906,63 @@ class Digital_diary_model extends MY_Model
         $this->ensureCoordinatorAlertActivityColumn();
         $this->ensureRoleAllocationTable();
         $this->ensureCoordinatorActivityRatingTable();
+    }
+
+    public function ensureDigitalDiaryTimetablePeriodConductedTable()
+    {
+        if ($this->db->table_exists('digital_diary_timetable_period_conducted')) {
+            return true;
+        }
+        $created = $this->db->query("CREATE TABLE IF NOT EXISTS `digital_diary_timetable_period_conducted` (
+          `id` int(11) NOT NULL AUTO_INCREMENT,
+          `branch_id` int(11) NOT NULL,
+          `session_id` int(11) NOT NULL,
+          `work_date` date NOT NULL,
+          `timetable_class_id` int(11) NOT NULL,
+          `staff_id` int(11) NOT NULL,
+          `conducted_at` datetime NOT NULL,
+          PRIMARY KEY (`id`),
+          UNIQUE KEY `dd_tpc_unique` (`branch_id`,`session_id`,`work_date`,`timetable_class_id`),
+          KEY `dd_tpc_staff_date` (`staff_id`,`work_date`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8 COLLATE=utf8_general_ci");
+        return $created && $this->db->table_exists('digital_diary_timetable_period_conducted');
+    }
+
+    /**
+     * @return array<int,bool>|false
+     */
+    public function getDigitalDiaryConductedTimetablePeriodMap($branchID, $sessionID, $workDate, $staffID)
+    {
+        if (!$this->ensureDigitalDiaryTimetablePeriodConductedTable()) {
+            return false;
+        }
+        $rows = $this->db
+            ->select('timetable_class_id')
+            ->where('branch_id', (int) $branchID)
+            ->where('session_id', (int) $sessionID)
+            ->where('work_date', $workDate)
+            ->where('staff_id', (int) $staffID)
+            ->get('digital_diary_timetable_period_conducted')
+            ->result();
+        $map = array();
+        foreach ($rows as $row) {
+            $map[(int) $row->timetable_class_id] = true;
+        }
+        return $map;
+    }
+
+    public function markDigitalDiaryTimetablePeriodConducted($branchID, $sessionID, $workDate, $timetableClassID, $staffID)
+    {
+        if (!$this->ensureDigitalDiaryTimetablePeriodConductedTable()) {
+            return false;
+        }
+        return $this->db->query(
+            "INSERT INTO `digital_diary_timetable_period_conducted`
+                (`branch_id`,`session_id`,`work_date`,`timetable_class_id`,`staff_id`,`conducted_at`)
+             VALUES (?,?,?,?,?,NOW())
+             ON DUPLICATE KEY UPDATE `staff_id`=VALUES(`staff_id`),`conducted_at`=VALUES(`conducted_at`)",
+            array((int) $branchID, (int) $sessionID, $workDate, (int) $timetableClassID, (int) $staffID)
+        );
     }
 
     /**

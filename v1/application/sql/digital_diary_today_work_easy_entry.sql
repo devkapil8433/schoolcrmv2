@@ -1,0 +1,13 @@
+-- Today's Work easy-entry columns.
+-- Prefer app auto-migrate: Digital_diary_model::ensureTodayWorkEasyEntryColumns().
+-- Run individual ALTERs only for columns that do not exist yet.
+
+-- ALTER TABLE `digital_diary_today_work` ADD COLUMN `cw_detail` varchar(500) DEFAULT NULL;
+-- ALTER TABLE `digital_diary_today_work` ADD COLUMN `hw_detail` varchar(500) DEFAULT NULL;
+-- ALTER TABLE `digital_diary_today_work` ADD COLUMN `learning_qtype` int(11) DEFAULT NULL;
+-- ALTER TABLE `digital_diary_today_work` ADD COLUMN `learning_qcount` int(11) DEFAULT NULL;
+-- ALTER TABLE `digital_diary_today_work` ADD COLUMN `cw_attachment` varchar(255) DEFAULT NULL;
+-- ALTER TABLE `digital_diary_today_work` ADD COLUMN `hw_attachment` varchar(255) DEFAULT NULL;
+-- ALTER TABLE `digital_diary_today_work` ADD COLUMN `coordinator_reviewed` tinyint(1) NOT NULL DEFAULT 0;
+-- ALTER TABLE `digital_diary_today_work` ADD COLUMN `coordinator_reviewed_at` datetime DEFAULT NULL;
+-- ALTER TABLE `digital_diary_today_work` ADD COLUMN `coordinator_reviewed_by` int(11) DEFAULT NULL;

@@ -90,22 +90,12 @@ class Branch extends Admin_Controller
         }
     }
 
-    /* delete information */
+    /* branches are never hard-deleted (it would remove staff and history); deactivate instead */
     public function delete_data($id = '')
     {
         if (is_superadmin_loggedin()) {
-            $this->db->where('id', $id);
-            $this->db->delete('branch');
-
-            //delete branch all staff
-            $result = $this->db->select('id')->where('branch_id', $id)->get('staff')->result();
-            foreach ($result as $key => $value) {
-                $this->db->where('user_id', $value->id);
-                $this->db->delete('login_credential');
-
-                $this->db->where('id', $value->id);
-                $this->db->delete('staff');
-            }
+            set_alert('error', 'Branches cannot be deleted. Deactivate the branch from Branch Management instead.');
+            echo json_encode(array('status' => 'error'));
         } else {
             redirect(base_url(), 'refresh');
         }

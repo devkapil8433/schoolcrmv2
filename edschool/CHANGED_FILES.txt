@@ -1,0 +1,162 @@
+EdSchool server UPDATE package
+Generated: 2026-07-25 10:43:11
+Based on changes since: 2026-07-08 (last production package)
+
+HOW TO DEPLOY
+1. Backup your live site (files + database) first.
+2. Extract this zip into your live edschool root (merge/overwrite).
+   Paths inside are relative to the edschool root (application/, assets/, etc.).
+3. Do NOT overwrite application/config/database.php or server-specific secrets
+   (those files are intentionally excluded from this package).
+4. Run SQL once in phpMyAdmin on the LIVE database:
+   application/sql/server_update_20260716.sql
+   (Optional/related: application/sql/digital_diary_today_work_learning_flow.sql)
+5. Ensure writable: application/logs/ application/cache/ uploads/
+
+Excluded: config.php, database.php, node_modules, uploads, system, mpdf tmp, *.zip, dummy/seed data
+
+FILES IN THIS PACKAGE (143 files):
+----------------------------------------------------------------------
+2026-07-25 10:41  .gitignore
+2026-07-25 10:41  .htaccess
+2026-07-16 18:13  application/config/profiler.php
+2026-07-25 10:41  application/controllers/Authentication.php
+2026-07-25 10:41  application/controllers/Digital_diary.php
+2026-07-25 10:41  application/controllers/Fees.php
+2026-07-25 10:41  application/controllers/Offline_payments.php
+2026-07-25 10:41  application/controllers/Onlineexam.php
+2026-07-25 10:41  application/controllers/School_settings.php
+2026-07-25 10:41  application/controllers/Userrole.php
+2026-07-25 10:41  application/controllers/fees_structure.php
+2026-07-25 10:41  application/core/MY_Controller.php
+2026-07-25 10:41  application/core/MY_Loader.php
+2026-07-25 10:41  application/helpers/general_helper.php
+2026-07-25 10:41  application/libraries/MY_Profiler.php
+2026-07-25 10:41  application/models/Application_model.php
+2026-07-25 10:41  application/models/Authentication_model.php
+2026-07-25 10:41  application/models/Digital_diary_model.php
+2026-07-25 10:41  application/models/Fees_model.php
+2026-07-25 10:41  application/models/Onlineexam_model.php
+2026-07-25 10:41  application/models/Userrole_model.php
+2026-07-25 10:41  application/sql/digital_diary_today_work_learning_flow.sql
+2026-07-25 10:41  application/sql/server_update_20260716.sql
+2026-07-25 10:41  application/views/authentication/_auth_close.php
+2026-07-25 10:41  application/views/authentication/_auth_open.php
+2026-07-25 10:41  application/views/authentication/_brand_panel.php
+2026-07-25 10:41  application/views/authentication/forgot.php
+2026-07-25 10:41  application/views/authentication/login.php
+2026-07-25 10:41  application/views/authentication/pwreset.php
+2026-07-25 10:41  application/views/communication/message.php
+2026-07-25 10:41  application/views/communication/message_compose.php
+2026-07-25 10:41  application/views/communication/message_important.php
+2026-07-25 10:41  application/views/communication/message_inbox.php
+2026-07-25 10:41  application/views/communication/message_read.php
+2026-07-25 10:41  application/views/communication/message_sent.php
+2026-07-25 10:41  application/views/communication/message_trash.php
+2026-07-25 10:41  application/views/digital_diary/coordinator_tasks.php
+2026-07-25 10:41  application/views/digital_diary/lesson.php
+2026-07-25 10:41  application/views/digital_diary/lesson_add.php
+2026-07-25 10:41  application/views/digital_diary/lesson_edit.php
+2026-07-25 10:41  application/views/digital_diary/lesson_subject.php
+2026-07-25 10:41  application/views/digital_diary/student_work_report_entry.php
+2026-07-25 10:41  application/views/digital_diary/today_work.php
+2026-07-25 10:41  application/views/fees/collect.php
+2026-07-25 10:41  application/views/fees/invoicePDFdownload.php
+2026-07-25 10:41  application/views/fees/invoicePrint.php
+2026-07-25 10:41  application/views/fees_structure/feediscount.php
+2026-07-25 10:41  application/views/fees_structure/feegroup.php
+2026-07-25 10:41  application/views/fees_structure/feemaster.php
+2026-07-25 10:41  application/views/fees_structure/feetype.php
+2026-07-25 10:41  application/views/frontend/setting.php
+2026-07-25 10:41  application/views/home/admit_card.php
+2026-07-25 10:41  application/views/home/certificates.php
+2026-07-25 10:41  application/views/home/exam_results.php
+2026-07-25 10:41  application/views/home/index.php
+2026-07-25 10:41  application/views/home/layout/footer.php
+2026-07-25 10:41  application/views/home/layout/header.php
+2026-07-25 10:41  application/views/home/layout/index.php
+2026-07-25 10:41  application/views/home/payment.php
+2026-07-25 10:41  application/views/install/index.php
+2026-07-25 10:41  application/views/layout/header.php
+2026-07-25 10:41  application/views/layout/index.php
+2026-07-25 10:41  application/views/layout/midtrans.php
+2026-07-25 10:41  application/views/layout/script.php
+2026-07-25 10:41  application/views/layout/sidebar.php
+2026-07-25 10:41  application/views/layout/student/components/_btn.php
+2026-07-25 10:41  application/views/layout/student/components/_card.php
+2026-07-25 10:41  application/views/layout/student/components/_data_table.php
+2026-07-25 10:41  application/views/layout/student/components/_empty_state.php
+2026-07-25 10:41  application/views/layout/student/components/_form_field.php
+2026-07-25 10:41  application/views/layout/student/components/_modal.php
+2026-07-25 10:41  application/views/layout/student/components/_page_header.php
+2026-07-25 10:41  application/views/layout/student/components/_tabs.php
+2026-07-25 10:41  application/views/layout/student/header.php
+2026-07-25 10:41  application/views/layout/student/index.php
+2026-07-25 10:41  application/views/layout/student/script.php
+2026-07-25 10:41  application/views/layout/student/sidebar.php
+2026-07-25 10:41  application/views/layout/student/stylesheet.php
+2026-07-25 10:41  application/views/layout/student/topbar.php
+2026-07-25 10:41  application/views/layout/stylesheet.php
+2026-07-25 10:41  application/views/offline_payments/history.php
+2026-07-25 10:41  application/views/onlineexam/ajax_take.php
+2026-07-25 10:41  application/views/onlineexam/create_question_paper.php
+2026-07-25 10:41  application/views/onlineexam/design_question_paper.php
+2026-07-25 10:41  application/views/onlineexam/image_database.php
+2026-07-25 10:41  application/views/onlineexam/manage_question.php
+2026-07-25 10:41  application/views/onlineexam/my_question_paper.php
+2026-07-25 10:41  application/views/onlineexam/question.php
+2026-07-25 10:41  application/views/onlineexam/question_add.php
+2026-07-25 10:41  application/views/onlineexam/question_class.php
+2026-07-25 10:41  application/views/onlineexam/question_edit.php
+2026-07-25 10:41  application/views/onlineexam/question_import.php
+2026-07-25 10:41  application/views/onlineexam/question_paper_edit.php
+2026-07-25 10:41  application/views/onlineexam/question_paper_pdf.php
+2026-07-25 10:41  application/views/onlineexam/question_paper_view.php
+2026-07-25 10:41  application/views/onlineexam/question_subject.php
+2026-07-25 10:41  application/views/onlineexam/question_type.php
+2026-07-25 10:41  application/views/onlineexam/question_view.php
+2026-07-25 10:41  application/views/onlineexam/result_question_breakdown.php
+2026-07-25 10:41  application/views/onlineexam/student_result.php
+2026-07-25 10:41  application/views/onlineexam/subjective_question_fields.php
+2026-07-25 10:41  application/views/onlineexam/take.php
+2026-07-25 10:41  application/views/profile/parent.php
+2026-07-25 10:41  application/views/profile/password_change.php
+2026-07-25 10:41  application/views/profile/student.php
+2026-07-25 10:41  application/views/settings/universal.php
+2026-07-25 10:41  application/views/student/idcard.php
+2026-07-25 10:41  application/views/userrole/attendance.php
+2026-07-25 10:41  application/views/userrole/book_request.php
+2026-07-25 10:41  application/views/userrole/collect.php
+2026-07-25 10:41  application/views/userrole/dashboard.php
+2026-07-25 10:41  application/views/userrole/exam_schedule.php
+2026-07-25 10:41  application/views/userrole/getExamPaymentForm.php
+2026-07-25 10:41  application/views/userrole/hostels.php
+2026-07-25 10:41  application/views/userrole/leave_request.php
+2026-07-25 10:41  application/views/userrole/live_class.php
+2026-07-25 10:41  application/views/userrole/live_classModal.php
+2026-07-25 10:41  application/views/userrole/livejoin.php
+2026-07-25 10:41  application/views/userrole/online_exam.php
+2026-07-25 10:41  application/views/userrole/report_card.php
+2026-07-25 10:41  application/views/userrole/subject_wise_attendance.php
+2026-07-25 10:41  application/views/userrole/teachers.php
+2026-07-25 10:41  application/views/userrole/today_work.php
+2026-07-25 10:41  application/views/userrole/today_work_view.php
+2026-07-25 10:41  application/views/userrole/transport_route.php
+2026-07-25 10:41  assets/css/ci-debug-toolbar.css
+2026-07-25 10:41  assets/css/custom-style.css
+2026-07-25 10:41  assets/js/app.fn.js
+2026-07-25 10:41  assets/js/app.js
+2026-07-25 10:41  assets/js/ci-debug-toolbar.js
+2026-07-25 10:41  assets/js/lesson-hindi-input.js
+2026-07-25 10:41  assets/js/online-exam.js
+2026-07-25 10:41  assets/login_page/css/style.css
+2026-07-25 10:41  assets/login_page/image/ATTRIBUTION.txt
+2026-07-25 10:41  assets/login_page/js/custom.js
+2026-07-25 10:43  assets/student-portal/css/portal.css
+2026-07-25 10:41  assets/student-portal/js/auth.js
+2026-07-25 10:41  assets/student-portal/js/portal-datatables.js
+2026-07-25 10:41  assets/student-portal/js/portal.js
+2026-07-25 10:41  assets/student-portal/src/input.css
+2026-07-25 10:41  index.php
+2026-07-25 10:41  package.json
+2026-07-25 10:41  tailwind.config.js

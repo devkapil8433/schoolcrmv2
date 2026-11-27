@@ -22,6 +22,17 @@
 			$.backstretch(sliderImages, { duration: 4000, fade: 900 });
 		}
 
+		var $roleTabs = $('.auth-role-tab');
+		var $roleInput = $('#login_role');
+
+		if ($roleTabs.length && $roleInput.length) {
+			$roleTabs.on('click', function() {
+				$roleTabs.removeClass('active').attr('aria-selected', 'false');
+				$(this).addClass('active').attr('aria-selected', 'true');
+				$roleInput.val($(this).data('role'));
+			});
+		}
+
 		var $passwordInput = $('#login-password');
 		var $toggleBtn = $('#togglePassword');
 

@@ -46,6 +46,7 @@ $todayKey = strtolower(date('l'));
 .co-my-schedule .panel-heading .panel-btn { top: 8px; }
 .co-my-schedule .co-tt-day { width: 110px; font-weight: 700; vertical-align: middle !important; background: #f4f7f8; }
 .co-my-schedule .co-tt-cell { min-width: 130px; vertical-align: top !important; font-size: 12px; }
+.co-my-schedule .co-tt-period { display: inline-block; padding: 2px 6px; margin-bottom: 4px; border-radius: 10px; background: #e3f2fd; color: #1565c0; font-size: 10px; font-weight: 700; }
 .co-my-schedule .co-tt-subject { display: block; font-weight: 600; color: #1f2d3d; margin-bottom: 2px; }
 .co-my-schedule .co-tt-meta { display: block; color: #6b7280; line-height: 1.35; }
 .co-my-schedule .co-tt-holiday > td { background: #fff8e1; }
@@ -90,6 +91,7 @@ $todayKey = strtolower(date('l'));
 							$tStart = date('g:i A', strtotime($timetable->time_start));
 							$tEnd = date('g:i A', strtotime($timetable->time_end));
 							echo '<td class="co-tt-cell">';
+							echo '<span class="co-tt-period">P' . (int) $rowCount . '</span>';
 							if ($isBreak) {
 								echo '<span class="co-tt-subject">BREAK</span>';
 								echo '<span class="co-tt-meta">' . html_escape($tStart) . ' – ' . html_escape($tEnd) . '</span>';

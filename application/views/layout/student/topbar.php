@@ -150,7 +150,17 @@
                     <a href="<?php echo base_url('profile/password'); ?>" class="flex items-center gap-2 px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50 transition-colors"><i class="fas fa-key w-4"></i> <?php echo translate('reset_password'); ?></a>
                     <a href="<?php echo base_url('communication/mailbox/inbox'); ?>" class="flex items-center gap-2 px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50 transition-colors"><i class="far fa-envelope w-4"></i> <?php echo translate('mailbox'); ?></a>
                     <div class="border-t border-slate-100 mt-1 pt-1">
+                        <p class="px-4 py-1 text-xs uppercase text-slate-400"><?php echo translate('switch_account'); ?></p>
+                        <?php foreach (get_linked_accounts() as $linkedID => $linkedAcc) { ?>
+                        <a href="<?php echo base_url('authentication/switch_account/' . (int) $linkedID); ?>" class="flex items-center gap-2 px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50 transition-colors"><i class="fas fa-user-friends w-4"></i> <?php echo html_escape($linkedAcc['name']); ?> <span class="text-xs text-slate-400">(<?php echo html_escape(ucfirst($linkedAcc['role'])); ?>)</span></a>
+                        <?php } ?>
+                        <a href="<?php echo base_url('authentication?add_account=1'); ?>" class="flex items-center gap-2 px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50 transition-colors"><i class="fas fa-user-plus w-4"></i> <?php echo translate('add_another_account'); ?></a>
+                    </div>
+                    <div class="border-t border-slate-100 mt-1 pt-1">
                         <a href="<?php echo base_url('authentication/logout'); ?>" class="flex items-center gap-2 px-4 py-2.5 text-sm text-red-600 hover:bg-slate-50 transition-colors"><i class="fas fa-sign-out-alt w-4"></i> <?php echo translate('logout'); ?></a>
+                        <?php if (get_linked_accounts()) { ?>
+                        <a href="<?php echo base_url('authentication/logout?all=1'); ?>" class="flex items-center gap-2 px-4 py-2.5 text-sm text-red-600 hover:bg-slate-50 transition-colors"><i class="fas fa-power-off w-4"></i> <?php echo translate('logout_all_accounts'); ?></a>
+                        <?php } ?>
                     </div>
                 </div>
             </div>

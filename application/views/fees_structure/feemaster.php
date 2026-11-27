@@ -56,8 +56,8 @@
               </div>
 
               <div class="form-group">
-                <label>Student Category <span class="required">*</span></label>
-                <select class="form-control" name="student_category[]" id="studentCategorySelect" multiple="multiple" required>
+                <label>Student Category</label>
+                <select class="form-control" name="student_category[]" id="studentCategorySelect" multiple="multiple">
                   <option value="">Select Category</option>
                   <!-- Options will be appended here via JS -->
                 </select>
@@ -226,7 +226,7 @@
                   </div>
 
                   <div class="form-group">
-                    <label>Student Category <span class="required">*</span></label>
+                    <label>Student Category</label>
                     <select class="form-control" name="student_category[]" id="edit_student_category" multiple="multiple">
                       <option value="">Select Category</option>
                     </select>

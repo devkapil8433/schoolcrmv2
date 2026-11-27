@@ -1,12 +1,12 @@
-question_type,exercise_id,question_level,question,mark,option_1,option_2,option_3,option_4,answer
-single_choice,1,easy,"What is the capital of France?",1,London,Paris,Berlin,Madrid,option_2
-multi_choice,1,medium,"Which of the following are programming languages? (Select all)",1,Python,HTML,Java,CSS,"[""option_1"",""option_3""]"
-true_false,1,easy,"The Earth is the third planet from the Sun.",1,,,,,TRUE
-descriptive,1,medium,"Explain in one sentence what photosynthesis is.",2,,,,,"Photosynthesis is the process by which plants use sunlight water and CO2 to make food."
-match,1,medium,"Match the country with its capital.",1,France|Paris,Japan|Tokyo,"India|New Delhi","USA|Washington D.C.","1-1,2-2,3-3,4-4"
-reading,1,hard,"What lesson does the narrator learn? Give two details from the text.",10,,,,,"The narrator learns that small acts of kindness are remembered."
-writing,1,hard,"Write a short paragraph on one way students can reduce plastic waste at school.",10,,,,,"Students can carry reusable bottles and lunch boxes to cut single-use plastic."
-fill_blanks,1,easy,"The chemical formula for water is ____.",1,,,,,H2O
-very_short,1,easy,"Name the largest planet in our solar system.",2,,,,,Jupiter
-short,1,medium,"Write two differences between plant cell and animal cell.",3,,,,,"Plant cells have cell wall and chloroplasts; animal cells do not."
-long,1,hard,"Describe the water cycle and explain why it is important for life on Earth.",5,,,,,"The water cycle includes evaporation condensation precipitation and collection. It redistributes water and supports ecosystems."
+lesson_no,lesson,question_type,exercise,question_level,question,mark,option_1,option_2,option_3,option_4,answer,explanation
+,,single_choice,,easy,"What is the capital of France?",1,London,Paris,Berlin,Madrid,option_2,"Paris is the capital city of France."
+,,multi_choice,,medium,"Which of the following are programming languages? (Select all)",1,Python,HTML,Java,CSS,"[""option_1"",""option_3""]","Python and Java are programming languages."
+,,true_false,,easy,"The Earth is the third planet from the Sun.",1,,,,,TRUE,"Mercury and Venus orbit closer to the Sun than Earth."
+,,descriptive,,medium,"Explain in one sentence what photosynthesis is.",2,,,,,"Photosynthesis is the process by which plants use sunlight water and CO2 to make food.","Plants convert light energy into chemical energy during photosynthesis."
+,,match,,medium,"Match the country with its capital.",1,France|Paris,Japan|Tokyo,"India|New Delhi","USA|Washington D.C.","1-1,2-2,3-3,4-4","Each country is paired with its capital city."
+,,reading,,hard,"What lesson does the narrator learn? Give two details from the text.",10,,,,,"The narrator learns that small acts of kindness are remembered.","A complete answer should identify the lesson and support it with two details from the passage."
+,,writing,,hard,"Write a short paragraph on one way students can reduce plastic waste at school.",10,,,,,"Students can carry reusable bottles and lunch boxes to cut single-use plastic.","Award credit for a practical idea supported by a clear explanation."
+,,fill_blanks,,easy,"The chemical formula for water is ____.",1,,,,,H2O,"Water contains two hydrogen atoms and one oxygen atom."
+,,very_short,,easy,"Name the largest planet in our solar system.",2,,,,,Jupiter,"Jupiter is the largest planet in the solar system."
+,,short,,medium,"Write two differences between plant cell and animal cell.",3,,,,,"Plant cells have cell wall and chloroplasts; animal cells do not.","Plant cells have a cell wall and chloroplasts; animal cells lack these structures."
+,,long,,hard,"Describe the water cycle and explain why it is important for life on Earth.",5,,,,,"The water cycle includes evaporation condensation precipitation and collection. It redistributes water and supports ecosystems.","A complete response should explain the main stages and how the cycle makes water available to living things."

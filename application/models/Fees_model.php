@@ -4,6 +4,8 @@
 
 class Fees_model extends MY_Model
 {
+    private $admissionSessionDateRanges = array();
+
     public function __construct()
     {
         parent::__construct();
@@ -101,77 +103,87 @@ class Fees_model extends MY_Model
 
     public function getInvoiceStatus($enrollID = '')
     {
-        $status = 'unpaid';
-        $sessionID = get_session_id();
-        $invNo = 0;
-
-        $enroll = $this->db->select('student_id, class_id')
-            ->where('id', $enrollID)
-            ->get('enroll')
+        $invoiceReference = 'ENR-' . str_pad((string) (int) $enrollID, 6, '0', STR_PAD_LEFT);
+        $enroll = $this->db->select('e.student_id, e.class_id, e.session_id, s.category_id, s.admission_date, sc.name as category_name')
+            ->from('enroll e')
+            ->join('student s', 's.id = e.student_id', 'inner')
+            ->join('student_category sc', 'sc.id = s.category_id', 'left')
+            ->where('e.id', $enrollID)
+            ->where('e.session_id', get_session_id())
+            ->get()
             ->row_array();
-
-        $totalAmount = 0;
-        $totalPaid = 0;
-        $totalBalance = 0;
-
-        // Current fee system: student_fee_allocation
         if (!empty($enroll)) {
-            $this->db->select('IFNULL(SUM(sfa.amount), 0) as total, IFNULL(SUM(sfa.paid), 0) as paid, IFNULL(SUM(sfa.balance), 0) as balance, MIN(sfa.id) as inv_no', false);
-            $this->db->from('student_fee_allocation as sfa');
-            $this->db->where('sfa.student_id', $enroll['student_id']);
-            $this->db->where('sfa.class_id', $enroll['class_id']);
-            $sfa = $this->db->get()->row_array();
-            if (!empty($sfa)) {
-                $totalAmount = (float) $sfa['total'];
-                $totalPaid = (float) $sfa['paid'];
-                $totalBalance = (float) $sfa['balance'];
-                $invNo = empty($sfa['inv_no']) ? 0 : str_pad($sfa['inv_no'], 4, '0', STR_PAD_LEFT);
+            $allocations = $this->db->select('sfa.id, sfa.amount, sfa.paid, sfa.month, COALESCE(fm.student_category, sfa.student_category_id) as eligible_categories, ft.fee_name')
+                ->from('student_fee_allocation sfa')
+                ->join('fee_master fm', 'fm.id = sfa.fee_master_id', 'left')
+                ->join('fees_type ft', 'ft.id = sfa.fee_type_id', 'left')
+                ->where('sfa.student_id', $enroll['student_id'])
+                ->where('sfa.class_id', $enroll['class_id'])
+                ->get()
+                ->result_array();
+            $total = 0;
+            $paid = 0;
+            foreach ($allocations as $allocation) {
+                if (!$this->isStudentEligibleForFeeCategories(
+                    $allocation['fee_name'] ?? '',
+                    $allocation['eligible_categories'] ?? '',
+                    $enroll['category_id'] ?? '',
+                    $enroll['category_name'] ?? '',
+                    $enroll['admission_date'] ?? '',
+                    $enroll['session_id']
+                )) {
+                    continue;
+                }
+                $total += (float) $allocation['amount'];
+                $paid += (float) $allocation['paid'];
+            }
+            if ($total > 0) {
+                if ($paid <= 0) {
+                    $status = 'unpaid';
+                } elseif ($paid >= $total) {
+                    $status = 'total';
+                } else {
+                    $status = 'partly';
+                }
+                return array(
+                    'status' => $status,
+                    'invoice_no' => $invoiceReference,
+                );
             }
         }
 
-        // Fallback: legacy fee_allocation
-        if ($totalAmount <= 0) {
-            $sql = "SELECT SUM(`fee_groups_details`.`amount` + `fee_allocation`.`prev_due`) as `total`, min(`fee_allocation`.`id`) as `inv_no` FROM `fee_allocation` LEFT JOIN `fee_groups_details` ON `fee_groups_details`.`fee_groups_id` = `fee_allocation`.`group_id` LEFT JOIN `fees_type` ON `fees_type`.`id` = `fee_groups_details`.`fee_type_id` WHERE `fee_allocation`.`student_id` = " . $this->db->escape($enrollID) . " AND `fee_allocation`.`session_id` = " . $this->db->escape($sessionID);
-            $balance = $this->db->query($sql)->row_array();
-            $totalAmount = (float) ($balance['total'] ?? 0);
-            $invNo = empty($balance['inv_no']) ? $invNo : str_pad($balance['inv_no'], 4, '0', STR_PAD_LEFT);
+        $status = "";
+        $sessionID = get_session_id();
+        $sql = "SELECT SUM(`fee_groups_details`.`amount` + `fee_allocation`.`prev_due`) as `total` FROM `fee_allocation` LEFT JOIN `fee_groups_details` ON `fee_groups_details`.`fee_groups_id` = `fee_allocation`.`group_id` LEFT JOIN `fees_type` ON `fees_type`.`id` = `fee_groups_details`.`fee_type_id` WHERE `fee_allocation`.`student_id` = " . $this->db->escape($enrollID) . " AND `fee_allocation`.`session_id` = " . $this->db->escape($sessionID);
+        $balance = $this->db->query($sql)->row_array();
 
-            $this->db->select("IFNULL(SUM(fee_payment_history.amount), 0) as amount, IFNULL(SUM(fee_payment_history.discount), 0) as discount");
-            $this->db->from("fee_payment_history");
-            $this->db->join("fee_allocation", "fee_allocation.id = fee_payment_history.allocation_id", "left");
-            $this->db->where("fee_allocation.student_id", $enrollID);
-            $this->db->where("fee_allocation.session_id", $sessionID);
-            $paid = $this->db->get()->row_array();
-            $totalPaid = (float) ($paid['amount'] ?? 0) + (float) ($paid['discount'] ?? 0);
-            $totalBalance = max(0, $totalAmount - $totalPaid);
-        }
-
-        // Transport fees
+        // calculation total transport fee
         $this->db->select("IFNULL(SUM(transport_stoppage_point.route_fare), 0) as amount");
         $this->db->from('transport_fee_details');
         $this->db->join('transport_stoppage_point', 'transport_stoppage_point.id = transport_fee_details.stoppage_point_id', 'inner');
         $this->db->where('transport_fee_details.enroll_id', $enrollID);
-        $trans_amount = (float) $this->db->get()->row()->amount;
-        $totalAmount += $trans_amount;
+        $trans_amount = $this->db->get()->row()->amount;
 
-        $this->db->select("IFNULL(SUM(h.amount), 0) as amount, IFNULL(SUM(h.discount), 0) as discount");
-        $this->db->from("fee_payment_history as h");
-        $this->db->join("transport_fee_details as tfd", "tfd.id = h.transport_fee_details_id", "inner");
-        $this->db->where("tfd.enroll_id", $enrollID);
-        $transPaid = $this->db->get()->row_array();
-        $transPaidTotal = (float) ($transPaid['amount'] ?? 0) + (float) ($transPaid['discount'] ?? 0);
-        $totalPaid += $transPaidTotal;
-        $totalBalance += max(0, $trans_amount - $transPaidTotal);
+        // calculation payment history
+        $this->db->select("IFNULL(SUM(fee_payment_history.amount), 0) as amount, IFNULL(SUM(fee_payment_history.discount), 0) as discount, IFNULL(SUM(fee_payment_history.fine), 0) as fine");
+        $this->db->from("fee_payment_history");
+        $this->db->join("fee_allocation", "fee_allocation.id = fee_payment_history.allocation_id", "left");
+        $this->db->join("transport_fee_details", "transport_fee_details.id = fee_payment_history.transport_fee_details_id", "left");
+        $this->db->where("fee_allocation.student_id", $enrollID);
+        $this->db->where("fee_allocation.session_id", $sessionID);
+        $this->db->or_group_start();
+        $this->db->where("transport_fee_details.enroll_id", $enrollID);
+        $this->db->group_end();
+        $paid = $this->db->get()->row_array();
 
-        if ($totalPaid <= 0) {
+        if ($paid['amount'] == 0) {
             $status = 'unpaid';
-        } elseif ($totalBalance <= 0 && $totalAmount > 0) {
+        } elseif (($balance['total'] + $trans_amount) == ($paid['amount'] + $paid['discount'])) {
             $status = 'total';
-        } elseif ($totalPaid > 0) {
+        } elseif ($paid['amount'] > 1) {
             $status = 'partly';
         }
-
-        return array('status' => $status, 'invoice_no' => $invNo);
+        return array('status' => $status, 'invoice_no' => $invoiceReference);
     }
 
     public function getInvoiceDetails($enrollID = '')
@@ -193,7 +205,7 @@ class Fees_model extends MY_Model
     public function getInvoiceBasic($enrollID = '')
     {
         $sessionID = get_session_id();
-        $this->db->select('s.id,s.register_no,s.photo,s.mobileno,e.branch_id,e.id as enroll_id,e.roll,s.first_name,s.last_name,s.stoppage_point_id,s.email as student_email,s.current_address as student_address,c.name as class_name,b.school_name,b.email as school_email,b.mobileno as school_mobileno,b.address as school_address,p.father_name,se.name as section_name,sc.name as category');
+        $this->db->select('s.id,s.register_no,s.photo,s.mobileno,e.branch_id,e.class_id,e.id as enroll_id,e.roll,s.first_name,s.last_name,s.stoppage_point_id,s.email as student_email,s.current_address as student_address,c.name as class_name,b.school_name,b.email as school_email,b.mobileno as school_mobileno,b.address as school_address,p.father_name,p.mobileno as guardian_mobileno,se.name as section_name,sc.name as category');
         $this->db->from('enroll as e');
         $this->db->join('student as s', 's.id = e.student_id', 'inner');
         $this->db->join('class as c', 'c.id = e.class_id', 'left');
@@ -281,19 +293,30 @@ class Fees_model extends MY_Model
         }
     }
 
-    public function getInvoiceList()
+    public function getInvoiceList($branchID = '')
     {
-        $branchID = $this->application_model->get_branch_id();
+        if (is_superadmin_loggedin()) {
+            $branchID = !empty($branchID) ? (int) $branchID : (int) $this->input->post('branch_id');
+        } else {
+            $branchID = (int) get_loggedin_branch_id();
+        }
+        if ($branchID < 1) {
+            return json_encode(array(
+                'draw' => (int) $this->input->post('draw'),
+                'recordsTotal' => 0,
+                'recordsFiltered' => 0,
+                'data' => array(),
+            ));
+        }
         $class_id = $this->input->post('class_id');
         $section_id = $this->input->post('section_id');
 
         // getting a list of classes assigned to a teacher
         $assigned_cs_list = $this->app_lib->get_ownClassSection();
 
-        // List enrolled students by class/section (current fee system uses student_fee_allocation)
         $this->datatables->select('e.id as enroll_id,e.student_id,e.roll,s.first_name,s.last_name,s.register_no,s.mobileno,c.name as class_name,se.name as section_name');
         $this->datatables->from('enroll as e');
-        $this->datatables->join('student as s', 's.id = e.student_id', 'inner');
+        $this->datatables->join('student as s', 's.id = e.student_id', 'left');
         $this->datatables->join('class as c', 'c.id = e.class_id', 'left');
         $this->datatables->join('section as se', 'se.id = e.section_id', 'left');
         $this->datatables->where('e.branch_id', $branchID);
@@ -320,8 +343,7 @@ class Fees_model extends MY_Model
             $this->datatables->group_end();
         }
         $this->datatables->search_value('s.first_name,s.last_name,s.register_no,s.mobileno');
-        $this->datatables->column_order('e.id,s.first_name,c.id,se.id,s.register_no,e.roll,s.mobileno,e.id');
-        $this->datatables->group_by('e.id');
+        $this->datatables->column_order('e.id,s.first_name,c.id,se.id,s.register_no,e.roll,s.mobileno');
         $this->datatables->order_by('e.id', 'asc');
         $results = $this->datatables->generate();
         $records = array();
@@ -347,26 +369,11 @@ class Fees_model extends MY_Model
             $row[] = $record->register_no;
             $row[] = $record->roll;
             $row[] = $record->mobileno;
-            // Fee group: show first fee type only; rest collapsible via View more
+            // getting fees group list
             $feegroup = $this->getfeeGroup($record->enroll_id);
             $groupList = '';
-            if (!empty($feegroup)) {
-                $names = array_values(array_map(function ($v) {
-                    return html_escape($v['name']);
-                }, $feegroup));
-                $visible = array_shift($names);
-                $groupList = '<div class="fee-group-wrap">';
-                $groupList .= '<div class="fee-group-visible">- ' . $visible . '</div>';
-                if (!empty($names)) {
-                    $uid = 'fg_' . $record->enroll_id;
-                    $groupList .= '<div class="fee-group-more" id="' . $uid . '" style="display:none;">';
-                    foreach ($names as $name) {
-                        $groupList .= '- ' . $name . '<br>';
-                    }
-                    $groupList .= '</div>';
-                    $groupList .= '<a href="javascript:void(0);" class="fee-group-toggle text-primary" data-target="' . $uid . '" data-more="' . translate('view_more') . '" data-less="' . translate('view_less') . '">' . translate('view_more') . '</a>';
-                }
-                $groupList .= '</div>';
+            foreach ($feegroup as $key => $value) {
+                $groupList .= "- " . $value['name'] . "<br>";
             }
             $row[] = $groupList;
             // fees status
@@ -621,33 +628,32 @@ class Fees_model extends MY_Model
 
     public function getfeeGroup($studentID = '')
     {
-        // $studentID here is enroll_id (legacy naming)
-        $enroll = $this->db->select('student_id, class_id')
+        $enroll = $this->db->select('student_id,class_id')
             ->where('id', $studentID)
             ->get('enroll')
             ->row_array();
 
-        if (!empty($enroll)) {
-            $this->db->select('ft.fee_name as name');
-            $this->db->from('student_fee_allocation as sfa');
-            $this->db->join('fees_type as ft', 'ft.id = sfa.fee_type_id', 'inner');
-            $this->db->where('sfa.student_id', $enroll['student_id']);
-            $this->db->where('sfa.class_id', $enroll['class_id']);
-            $this->db->group_by('ft.id');
-            $this->db->order_by('ft.fee_name', 'asc');
-            $rows = $this->db->get()->result_array();
-            if (!empty($rows)) {
-                return $rows;
-            }
-        }
-
-        // Fallback: legacy fee_allocation groups
+        $groups = array();
         $this->db->select('g.name');
         $this->db->from('fee_allocation as fa');
         $this->db->join('fee_groups as g', 'g.id = fa.group_id', 'inner');
         $this->db->where('fa.student_id', $studentID);
         $this->db->where('fa.session_id', get_session_id());
-        return $this->db->get()->result_array();
+        foreach ($this->db->get()->result_array() as $row) {
+            $groups[$row['name']] = array('name' => $row['name']);
+        }
+
+        if (!empty($enroll)) {
+            $this->db->select('DISTINCT ft.fee_name as name', false);
+            $this->db->from('student_fee_allocation sfa');
+            $this->db->join('fees_type ft', 'ft.id = sfa.fee_type_id', 'inner');
+            $this->db->where('sfa.student_id', $enroll['student_id']);
+            $this->db->where('sfa.class_id', $enroll['class_id']);
+            foreach ($this->db->get()->result_array() as $row) {
+                $groups[$row['name']] = array('name' => $row['name']);
+            }
+        }
+        return array_values($groups);
     }
 
     public function reminderSave($data = array())
@@ -904,9 +910,9 @@ class Fees_model extends MY_Model
     }
 
     // voucher transaction save function
-    public function saveTransaction($data = array(), $payment_historyID = '')
+    public function saveTransaction($data = array(), $payment_historyID = '', $branchID = '')
     {
-        $branchID = $this->application_model->get_branch_id();
+        $branchID = !empty($branchID) ? $branchID : $this->application_model->get_branch_id();
         $accountID = $data['account_id'];
         $date = $data['date'];
         $amount = $data['amount'];
@@ -1169,6 +1175,49 @@ class Fees_model extends MY_Model
         return $query->result_array();
     }
 
+    public function get_material_sales_students_by_class($classID, $sessionID = '', $branchID = '')
+    {
+        if (empty($classID) || !$this->db->table_exists('sales_bill')) {
+            return array();
+        }
+        if (empty($sessionID)) {
+            $sessionID = get_session_id();
+        }
+        if (empty($branchID) && !is_superadmin_loggedin()) {
+            $branchID = get_loggedin_branch_id();
+        }
+        if (empty($sessionID) || empty($branchID)) {
+            return array();
+        }
+
+        $sql = "SELECT DISTINCT s.id, s.first_name, s.last_name, s.register_no,
+                    e.id AS enroll_id, e.class_id, e.roll, se.name AS section_name
+                FROM (
+                    SELECT enrolled.id, enrolled.student_id, enrolled.class_id, enrolled.branch_id,
+                        enrolled.session_id, enrolled.section_id, enrolled.roll
+                    FROM enroll enrolled
+                    INNER JOIN (
+                        SELECT student_id, branch_id, MAX(session_id) AS latest_session_id
+                        FROM enroll
+                        WHERE branch_id = ? AND session_id <= ?
+                        GROUP BY student_id, branch_id
+                    ) latest ON latest.student_id = enrolled.student_id
+                        AND latest.branch_id = enrolled.branch_id
+                        AND latest.latest_session_id = enrolled.session_id
+                ) e
+                INNER JOIN student s ON s.id = e.student_id AND s.active = 1
+                LEFT JOIN section se ON se.id = e.section_id
+                INNER JOIN (
+                    SELECT user_id, branch_id
+                    FROM sales_bill
+                    WHERE role_id = 7 AND branch_id = ?
+                    GROUP BY user_id, branch_id
+                ) sales ON sales.user_id = e.student_id AND sales.branch_id = e.branch_id
+                WHERE e.class_id = ?";
+        $rows = $this->db->query($sql, array($branchID, $sessionID, $branchID, $classID))->result_array();
+        return $rows;
+    }
+
     public function getPaidStudentsRegister($branchID = '', $fromDate = '', $toDate = '', $feeTypeIds = array())
     {
         if (empty($branchID) || empty($fromDate) || empty($toDate)) {
@@ -1202,6 +1251,9 @@ class Fees_model extends MY_Model
             $this->db->where('s.active', 1);
             $this->db->where('fc.date >=', $fromDate);
             $this->db->where('fc.date <=', $toDate);
+            if ($this->db->table_exists('fee_receipt_reversals')) {
+                $this->db->where('NOT EXISTS (SELECT 1 FROM fee_receipt_reversals fr WHERE fr.branch_id = fc.branch_id AND fr.receipt_no = fc.receipt_no)', null, false);
+            }
             if (!empty($feeTypeIds)) {
                 $this->db->where_in('fc.fee_type_id', $feeTypeIds);
             }
@@ -1336,6 +1388,61 @@ class Fees_model extends MY_Model
         return trim($key, '_');
     }
 
+    private function isStudentEligibleForFeeCategories($feeName, $configuredCategories, $studentCategoryID, $studentCategoryName, $admissionDate, $sessionID)
+    {
+        $configuredCategories = trim((string) $configuredCategories);
+        $categoryIDs = $configuredCategories === '' ? array() : json_decode($configuredCategories, true);
+        if (!is_array($categoryIDs)) {
+            log_message('error', 'Invalid student category list in fee master: ' . $configuredCategories);
+            return false;
+        }
+        if (!empty($categoryIDs)
+            && !in_array((string) $studentCategoryID, array_map('strval', $categoryIDs), true)) {
+            return false;
+        }
+
+        if (stripos((string) $feeName, 'admission') === false) {
+            return true;
+        }
+
+        if (strcasecmp(trim((string) $studentCategoryName), 'Old Admission') === 0) {
+            return false;
+        }
+
+        if (!array_key_exists($sessionID, $this->admissionSessionDateRanges)) {
+            $sessionName = (string) $this->db->select('school_year')
+                ->where('id', $sessionID)
+                ->get('schoolyear')
+                ->row('school_year');
+            if (preg_match('/\b(20\d{2})\s*[-\/]\s*(20\d{2})\b/', $sessionName, $matches)
+                && (int) $matches[2] === (int) $matches[1] + 1) {
+                $this->admissionSessionDateRanges[$sessionID] = array(
+                    $matches[1] . '-04-01',
+                    $matches[2] . '-03-31',
+                );
+            } else {
+                $this->admissionSessionDateRanges[$sessionID] = false;
+                log_message('error', 'Unable to determine academic-year dates for admission fee eligibility: ' . $sessionName);
+            }
+        }
+
+        $dateRange = $this->admissionSessionDateRanges[$sessionID];
+        $admissionDate = substr((string) $admissionDate, 0, 10);
+        return is_array($dateRange)
+            && $admissionDate >= $dateRange[0]
+            && $admissionDate <= $dateRange[1];
+    }
+
+    private function normalizeStudentCategoryIDs($categories)
+    {
+        return array_values(array_unique(array_filter(
+            array_map('strval', (array) $categories),
+            function ($categoryID) {
+                return $categoryID !== '';
+            }
+        )));
+    }
+
     private function branchFeeTypeFilter($alias = 'ft')
     {
         if (!is_superadmin_loggedin()) {
@@ -1343,26 +1450,54 @@ class Fees_model extends MY_Model
         }
     }
 
-    public function get_used_fee_types()
+    public function get_used_fee_types($branchID = '')
     {
-        $this->db->select('DISTINCT ft.id, ft.fee_name', false);
+        $this->db->select('DISTINCT ft.id, ft.fee_name, ft.frequency', false);
         $this->db->from('fee_master_classwise fmc');
         $this->db->join('fees_type ft', 'ft.id = fmc.fee_type_id', 'inner');
         $this->branchFeeTypeFilter('ft');
+        if (!empty($branchID)) {
+            $this->db->where('ft.branch_id', $branchID);
+        }
         return $this->db->order_by('ft.id', 'asc')->get()->result_array();
     }
 
-    public function get_class_wise_fee_structure()
+    public function get_class_wise_fee_structure($branchID = '')
     {
         $this->db->select('fmc.class_id, ft.fee_name, SUM(fmc.amount) as amount');
         $this->db->from('fee_master_classwise fmc');
         $this->db->join('fees_type ft', 'ft.id = fmc.fee_type_id', 'inner');
         $this->branchFeeTypeFilter('ft');
+        if (!empty($branchID)) {
+            $this->db->where('ft.branch_id', $branchID);
+        }
         $this->db->group_by(['fmc.class_id', 'ft.fee_name']);
         $rows = $this->db->get()->result_array();
         $result = array();
         foreach ($rows as $row) {
             $result[$row['class_id']][$this->normalizeFeeNameKey($row['fee_name'])] = (float) $row['amount'];
+        }
+        return $result;
+    }
+
+    public function get_class_wise_fee_structure_details($branchID = '')
+    {
+        $this->db->select('fmc.class_id, ft.fee_name, ft.frequency, fmc.amount, fmc.month');
+        $this->db->from('fee_master_classwise fmc');
+        $this->db->join('fees_type ft', 'ft.id = fmc.fee_type_id', 'inner');
+        $this->branchFeeTypeFilter('ft');
+        if (!empty($branchID)) {
+            $this->db->where('ft.branch_id', $branchID);
+        }
+
+        $result = array();
+        foreach ($this->db->order_by('ft.id', 'asc')->get()->result_array() as $row) {
+            $key = $this->normalizeFeeNameKey($row['fee_name']);
+            $result[$row['class_id']][$key][] = array(
+                'amount' => (float) $row['amount'],
+                'months' => array_values(array_filter(array_map('intval', explode(',', (string) $row['month'])))),
+                'frequency' => (string) $row['frequency'],
+            );
         }
         return $result;
     }
@@ -1373,8 +1508,7 @@ class Fees_model extends MY_Model
     }
 
     /**
-     * Class-wise SUM of remaining student balances per fee type.
-     * Example: First Class → Admission Fee = SUM(balance) of all First Class students' admission allocations.
+     * Class-wise SUM of assigned student amounts per fee type.
      */
     public function get_class_wise_fee_type_balances($session_id = '', $branch_id = '')
     {
@@ -1385,12 +1519,13 @@ class Fees_model extends MY_Model
             $branch_id = get_loggedin_branch_id();
         }
 
-        $this->db->select('e.class_id, ft.fee_name, SUM(sfa.balance) as total', false);
+        $this->db->select('e.class_id, ft.fee_name, SUM(sfa.amount) as total', false);
         $this->db->from('student_fee_allocation sfa');
         $this->db->join('enroll e', 'e.student_id = sfa.student_id AND e.class_id = sfa.class_id AND e.session_id = ' . $this->db->escape($session_id), 'inner');
         $this->db->join('student s', 's.id = sfa.student_id', 'inner');
         $this->db->join('fees_type ft', 'ft.id = sfa.fee_type_id', 'inner');
         $this->db->where('s.active', 1);
+        $this->db->where("LOWER(TRIM(REPLACE(ft.fee_name, ' ', ''))) <>", 'class-1');
         if (!empty($branch_id)) {
             $this->db->where('e.branch_id', $branch_id);
         }
@@ -1404,7 +1539,7 @@ class Fees_model extends MY_Model
         return $result;
     }
 
-    public function get_class_wise_transport_fee()
+    public function get_class_wise_transport_fee($branchID = '')
     {
         $sessionID = get_session_id();
         $this->db->select('e.class_id, MAX(sp.route_fare) as route_fare');
@@ -1414,6 +1549,8 @@ class Fees_model extends MY_Model
         $this->db->where('e.session_id', $sessionID);
         if (!is_superadmin_loggedin()) {
             $this->db->where('e.branch_id', get_loggedin_branch_id());
+        } elseif (!empty($branchID)) {
+            $this->db->where('e.branch_id', $branchID);
         }
         $this->db->group_by('e.class_id');
         $rows = $this->db->get()->result_array();
@@ -1488,6 +1625,150 @@ class Fees_model extends MY_Model
         return array();
     }
 
+    public function get_class_wise_material_sales($branchID = '')
+    {
+        if (!$this->db->table_exists('sales_bill') || empty($branchID)) {
+            return array();
+        }
+
+        $sql = "SELECT e.class_id,
+                    SUM(GREATEST(0, sb.total - sb.discount)) AS amount
+                FROM sales_bill sb
+                INNER JOIN (
+                    SELECT DISTINCT student_id, class_id, branch_id
+                    FROM enroll
+                    WHERE session_id = ?
+                      AND branch_id = ?
+                ) e ON e.student_id = sb.user_id AND e.branch_id = sb.branch_id
+                INNER JOIN student s ON s.id = sb.user_id AND s.active = 1
+                WHERE sb.role_id = 7
+                  AND sb.branch_id = ?
+                GROUP BY e.class_id";
+
+        $result = array();
+        foreach ($this->db->query($sql, array(get_session_id(), $branchID, $branchID))->result_array() as $row) {
+            $result[$row['class_id']] = (float) $row['amount'];
+        }
+        return $result;
+    }
+
+    public function get_class_wise_material_totals($sessionID = '', $branchID = '')
+    {
+        $totals = $this->get_inventory_material_totals($sessionID, $branchID);
+        return $totals['classes'];
+    }
+
+    public function get_student_wise_material_totals($classID, $sessionID = '', $branchID = '')
+    {
+        if (empty($classID)) {
+            return array();
+        }
+        $totals = $this->get_inventory_material_totals($sessionID, $branchID, $classID);
+        return $totals['students'];
+    }
+
+    public function get_class_wise_material_set_amounts($branchID = '')
+    {
+        if (empty($branchID) && !is_superadmin_loggedin()) {
+            $branchID = get_loggedin_branch_id();
+        }
+        if (empty($branchID) || !$this->db->table_exists('inventory_sets')
+            || !$this->db->table_exists('inventory_set_items')) {
+            return array();
+        }
+
+        $sql = "SELECT sets.class_id, SUM(sets.amount) AS amount
+                FROM (
+                    SELECT s.id, s.class_id, SUM(IFNULL(i.total_price, 0)) AS amount
+                    FROM inventory_sets s
+                    LEFT JOIN inventory_set_items i ON i.set_id = s.id
+                    WHERE s.branch_id = ?
+                    GROUP BY s.id, s.class_id
+                ) sets
+                GROUP BY sets.class_id";
+        $result = array();
+        foreach ($this->db->query($sql, array($branchID))->result_array() as $row) {
+            $result[$row['class_id']] = (float) $row['amount'];
+        }
+        return $result;
+    }
+
+    private function get_inventory_material_totals($sessionID = '', $branchID = '', $classID = '')
+    {
+        if (empty($sessionID)) {
+            $sessionID = get_session_id();
+        }
+        if (empty($branchID) && !is_superadmin_loggedin()) {
+            $branchID = get_loggedin_branch_id();
+        }
+        if (empty($sessionID) || empty($branchID)) {
+            return array('classes' => array(), 'students' => array());
+        }
+
+        $hasSalesBills = $this->db->table_exists('sales_bill');
+        $salesJoin = '';
+        $params = array();
+        if ($hasSalesBills) {
+            $salesJoin = " LEFT JOIN (
+                    SELECT user_id, branch_id,
+                        SUM(GREATEST(0, total - discount)) AS sold,
+                        SUM(LEAST(GREATEST(0, total - discount), GREATEST(0, paid))) AS received
+                    FROM sales_bill
+                    WHERE role_id = 7 AND branch_id = ?
+                    GROUP BY user_id, branch_id
+                ) sales ON sales.user_id = e.student_id AND sales.branch_id = e.branch_id";
+        }
+
+        $sql = "SELECT e.student_id, e.class_id"
+            . ($hasSalesBills ? ", IFNULL(sales.sold, 0) AS sold, IFNULL(sales.received, 0) AS received" : ", 0 AS sold, 0 AS received")
+            . " FROM (
+                    SELECT DISTINCT enrolled.student_id, enrolled.class_id, enrolled.branch_id
+                    FROM enroll enrolled
+                    INNER JOIN (
+                        SELECT student_id, branch_id, MAX(session_id) AS latest_session_id
+                        FROM enroll
+                        WHERE branch_id = ? AND session_id <= ?
+                        GROUP BY student_id, branch_id
+                    ) latest ON latest.student_id = enrolled.student_id
+                        AND latest.branch_id = enrolled.branch_id
+                        AND latest.latest_session_id = enrolled.session_id";
+        $params[] = $branchID;
+        $params[] = $sessionID;
+        if (!empty($classID)) {
+            $sql .= " WHERE enrolled.class_id = ?";
+            $params[] = $classID;
+        }
+        if ($hasSalesBills) {
+            $params[] = $branchID;
+        }
+        $sql .= " ) e
+                INNER JOIN student s ON s.id = e.student_id AND s.active = 1"
+            . $salesJoin;
+
+        $classTotals = array();
+        $studentTotals = array();
+        foreach ($this->db->query($sql, $params)->result_array() as $row) {
+            $studentId = $row['student_id'];
+            $classId = $row['class_id'];
+            $sold = (float) $row['sold'];
+            $received = (float) $row['received'];
+            $assigned = $sold;
+
+            $studentTotals[$studentId] = array(
+                'assigned' => $assigned,
+                'received' => $received,
+                'balance' => max(0, $assigned - $received),
+            );
+            if (!isset($classTotals[$classId])) {
+                $classTotals[$classId] = array('assigned' => 0, 'received' => 0, 'balance' => 0);
+            }
+            $classTotals[$classId]['assigned'] += $assigned;
+            $classTotals[$classId]['received'] += $received;
+            $classTotals[$classId]['balance'] += max(0, $assigned - $received);
+        }
+        return array('classes' => $classTotals, 'students' => $studentTotals);
+    }
+
     public function get_class_wise_set_amounts()
     {
         return array();
@@ -1508,11 +1789,85 @@ class Fees_model extends MY_Model
         $this->db->join('student s', 's.id = sfa.student_id', 'inner');
         $this->db->where('e.session_id', $session_id);
         $this->db->where('s.active', 1);
+        $this->db->where("LOWER(TRIM(REPLACE(ft.fee_name, ' ', ''))) <>", 'class-1');
+        $this->db->join('fees_type ft', 'ft.id = sfa.fee_type_id', 'left');
         if (!empty($branch_id)) {
             $this->db->where('e.branch_id', $branch_id);
         }
         $this->db->group_by('e.class_id');
         return $this->mapClassTotals($this->db->get()->result_array());
+    }
+
+    public function get_class_wise_transport_totals($sessionID = '', $branchID = '')
+    {
+        return $this->get_estimation_transport_totals('class_id', '', $sessionID, $branchID);
+    }
+
+    public function get_student_wise_transport_totals($classID, $sessionID = '', $branchID = '')
+    {
+        if (empty($classID)) {
+            return array();
+        }
+        return $this->get_estimation_transport_totals('student_id', $classID, $sessionID, $branchID);
+    }
+
+    private function get_estimation_transport_totals($groupBy, $classID, $sessionID, $branchID)
+    {
+        if (empty($sessionID)) {
+            $sessionID = get_session_id();
+        }
+        if (empty($branchID) && !is_superadmin_loggedin()) {
+            $branchID = get_loggedin_branch_id();
+        }
+        if (empty($branchID)) {
+            return array();
+        }
+
+        $collectionFilter = '';
+        if ($this->db->table_exists('fee_receipt_reversals')) {
+            $collectionFilter = " AND NOT EXISTS (
+                SELECT 1 FROM fee_receipt_reversals fr
+                WHERE fr.branch_id = fc.branch_id AND fr.receipt_no = fc.receipt_no
+            )";
+        }
+        $sql = "SELECT e.{$groupBy} AS group_id,
+                    SUM(IFNULL(sp.route_fare, 0)) AS assigned,
+                    SUM(LEAST(IFNULL(sp.route_fare, 0), GREATEST(0, COALESCE(fc.total_paid, hp.total_paid, 0)))) AS received
+                FROM enroll e
+                INNER JOIN student s ON s.id = e.student_id AND s.active = 1
+                INNER JOIN transport_fee_details tfd ON tfd.enroll_id = e.id
+                INNER JOIN transport_stoppage_point sp ON sp.id = tfd.stoppage_point_id
+                LEFT JOIN (
+                    SELECT fc.trans_fd_id, SUM(fc.paid_amount + fc.discount) AS total_paid
+                    FROM fee_collect fc
+                    WHERE fc.fee_type = 'transport'{$collectionFilter}
+                    GROUP BY fc.trans_fd_id
+                ) fc ON fc.trans_fd_id = tfd.id
+                LEFT JOIN (
+                    SELECT transport_fee_details_id, SUM(amount + discount) AS total_paid
+                    FROM fee_payment_history
+                    WHERE transport_fee_details_id IS NOT NULL
+                    GROUP BY transport_fee_details_id
+                ) hp ON hp.transport_fee_details_id = tfd.id
+                WHERE e.session_id = ? AND e.branch_id = ?";
+        $params = array($sessionID, $branchID);
+        if (!empty($classID)) {
+            $sql .= ' AND e.class_id = ?';
+            $params[] = $classID;
+        }
+        $sql .= " GROUP BY e.{$groupBy}";
+
+        $result = array();
+        foreach ($this->db->query($sql, $params)->result_array() as $row) {
+            $assigned = (float) $row['assigned'];
+            $received = (float) $row['received'];
+            $result[$row['group_id']] = array(
+                'assigned' => $assigned,
+                'received' => $received,
+                'balance' => max(0, $assigned - $received),
+            );
+        }
+        return $result;
     }
 
     public function get_class_wise_received_amount($session_id = '', $branch_id = '')
@@ -1530,6 +1885,8 @@ class Fees_model extends MY_Model
         $this->db->join('student s', 's.id = sfa.student_id', 'inner');
         $this->db->where('e.session_id', $session_id);
         $this->db->where('s.active', 1);
+        $this->db->where("LOWER(TRIM(REPLACE(ft.fee_name, ' ', ''))) <>", 'class-1');
+        $this->db->join('fees_type ft', 'ft.id = sfa.fee_type_id', 'left');
         if (!empty($branch_id)) {
             $this->db->where('e.branch_id', $branch_id);
         }
@@ -1559,8 +1916,63 @@ class Fees_model extends MY_Model
         return $this->mapClassTotals($this->db->get()->result_array());
     }
 
+    public function get_class_wise_last_balance_received($sessionID = '', $branchID = '')
+    {
+        return $this->get_last_balance_received_totals('class_id', '', $sessionID, $branchID);
+    }
+
+    public function get_student_wise_last_balance_received($classID, $sessionID = '', $branchID = '')
+    {
+        if (empty($classID)) {
+            return array();
+        }
+        return $this->get_last_balance_received_totals('student_id', $classID, $sessionID, $branchID);
+    }
+
+    private function get_last_balance_received_totals($groupBy, $classID, $sessionID, $branchID)
+    {
+        if (empty($sessionID)) {
+            $sessionID = get_session_id();
+        }
+        if (empty($branchID) && !is_superadmin_loggedin()) {
+            $branchID = get_loggedin_branch_id();
+        }
+        if (empty($branchID) || !$this->db->table_exists('fee_collect')) {
+            return array();
+        }
+
+        $sql = "SELECT e.{$groupBy} AS group_id, SUM(fc.paid_amount + fc.discount) AS total
+                FROM fee_collect fc
+                INNER JOIN enroll e ON e.student_id = fc.student_id
+                    AND e.session_id = ? AND e.branch_id = fc.branch_id
+                INNER JOIN student s ON s.id = e.student_id AND s.active = 1
+                WHERE fc.branch_id = ? AND fc.fee_type = 'last_balance'";
+        $params = array($sessionID, $branchID);
+        if ($this->db->table_exists('fee_receipt_reversals')) {
+            $sql .= " AND NOT EXISTS (
+                SELECT 1 FROM fee_receipt_reversals fr
+                WHERE fr.branch_id = fc.branch_id AND fr.receipt_no = fc.receipt_no
+            )";
+        }
+        if (!empty($classID)) {
+            $sql .= ' AND e.class_id = ?';
+            $params[] = $classID;
+        }
+        $sql .= " GROUP BY e.{$groupBy}";
+        return $this->mapStudentTotalsOrClassTotals($this->db->query($sql, $params)->result_array());
+    }
+
+    private function mapStudentTotalsOrClassTotals($rows)
+    {
+        $result = array();
+        foreach ($rows as $row) {
+            $result[$row['group_id']] = (float) $row['total'];
+        }
+        return $result;
+    }
+
     /**
-     * Student-wise remaining balances per fee type within one class.
+     * Student-wise assigned amounts per fee type within one class.
      */
     public function get_student_wise_fee_type_balances($class_id, $session_id = '', $branch_id = '')
     {
@@ -1574,7 +1986,7 @@ class Fees_model extends MY_Model
             $branch_id = get_loggedin_branch_id();
         }
 
-        $this->db->select('sfa.student_id, ft.fee_name, SUM(sfa.balance) as total', false);
+        $this->db->select('sfa.student_id, ft.fee_name, SUM(sfa.amount) as total', false);
         $this->db->from('student_fee_allocation sfa');
         $this->db->join('enroll e', 'e.student_id = sfa.student_id AND e.class_id = sfa.class_id AND e.session_id = ' . $this->db->escape($session_id), 'inner');
         $this->db->join('student s', 's.id = sfa.student_id', 'inner');
@@ -1585,6 +1997,7 @@ class Fees_model extends MY_Model
         if (!empty($branch_id)) {
             $this->db->where('e.branch_id', $branch_id);
         }
+        $this->db->where("LOWER(TRIM(REPLACE(ft.fee_name, ' ', ''))) <>", 'class-1');
         $this->db->group_by(['sfa.student_id', 'sfa.fee_type_id', 'ft.fee_name']);
         $rows = $this->db->get()->result_array();
 
@@ -1593,6 +2006,134 @@ class Fees_model extends MY_Model
             $result[$row['student_id']][$this->normalizeFeeNameKey($row['fee_name'])] = (float) $row['total'];
         }
         return $result;
+    }
+
+    public function get_fee_monthly_performance($sessionID = '', $branchID = '', $classID = '')
+    {
+        if (empty($sessionID)) {
+            $sessionID = get_session_id();
+        }
+        if (empty($branchID) && !is_superadmin_loggedin()) {
+            $branchID = get_loggedin_branch_id();
+        }
+        if (empty($sessionID) || empty($branchID)) {
+            return array('classes' => array(), 'students' => array(), 'months' => array());
+        }
+
+        $query = $this->db->select(
+            'e.class_id, sfa.student_id, sfa.amount, sfa.paid, sfa.balance, sfa.month, sfa.due_date, ft.fee_name',
+            false
+        )
+            ->from('student_fee_allocation sfa')
+            ->join('enroll e', 'e.student_id = sfa.student_id AND e.class_id = sfa.class_id', 'inner')
+            ->join('student s', 's.id = sfa.student_id AND s.active = 1', 'inner')
+            ->join('fees_type ft', 'ft.id = sfa.fee_type_id', 'left')
+            ->where('e.session_id', $sessionID)
+            ->where('e.branch_id', $branchID)
+            ->where("LOWER(TRIM(REPLACE(ft.fee_name, ' ', ''))) <>", 'class-1');
+        if (!empty($classID)) {
+            $query->where('e.class_id', $classID);
+        }
+
+        $classTotals = array();
+        $studentTotals = array();
+        $monthTotals = array();
+        $academicMonths = array(4, 5, 6, 7, 8, 9, 10, 11, 12, 1, 2, 3);
+        $monthNames = array(
+            1 => 'January', 2 => 'February', 3 => 'March', 4 => 'April',
+            5 => 'May', 6 => 'June', 7 => 'July', 8 => 'August',
+            9 => 'September', 10 => 'October', 11 => 'November',
+            12 => 'December',
+        );
+        $today = date('Y-m-d');
+        $currentAcademicIndex = array_search((int) date('n'), $academicMonths, true);
+        $currentAcademicIndex = ($currentAcademicIndex === false) ? 0 : $currentAcademicIndex;
+
+        foreach ($query->get()->result_array() as $row) {
+            $monthNumbers = array_values(array_unique(array_filter(
+                array_map('intval', explode(',', (string) $row['month'])),
+                function ($month) {
+                    return $month >= 1 && $month <= 12;
+                }
+            )));
+            $amount = (float) $row['amount'];
+            $paid = min($amount, max(0, (float) $row['paid']));
+            $balance = max(0, (float) $row['balance']);
+
+            foreach ($monthNumbers as $monthNumber) {
+                if (!isset($monthTotals[$monthNumber])) {
+                    $monthTotals[$monthNumber] = array('assigned' => 0, 'received' => 0);
+                }
+                $monthTotals[$monthNumber]['assigned'] += $amount;
+                $monthTotals[$monthNumber]['received'] += $paid;
+            }
+
+            $dueDate = (string) ($row['due_date'] ?? '');
+            if ($dueDate !== '' && $dueDate !== '0000-00-00') {
+                $isPastDue = $dueDate <= $today;
+            } else {
+                $isPastDue = false;
+                foreach ($monthNumbers as $monthNumber) {
+                    $academicIndex = array_search($monthNumber, $academicMonths, true);
+                    if ($academicIndex !== false && $academicIndex <= $currentAcademicIndex) {
+                        $isPastDue = true;
+                        break;
+                    }
+                }
+            }
+            if (!$isPastDue || $balance <= 0) {
+                continue;
+            }
+
+            $studentID = $row['student_id'];
+            $classKey = $row['class_id'];
+            if (!isset($studentTotals[$studentID])) {
+                $studentTotals[$studentID] = array('due' => 0, 'months' => array());
+            }
+            if (!isset($classTotals[$classKey])) {
+                $classTotals[$classKey] = array('due' => 0, 'students' => array(), 'months' => array());
+            }
+
+            $studentTotals[$studentID]['due'] += $balance;
+            foreach ($monthNumbers as $monthNumber) {
+                $academicIndex = array_search($monthNumber, $academicMonths, true);
+                if ($academicIndex === false || $academicIndex > $currentAcademicIndex) {
+                    continue;
+                }
+                $studentTotals[$studentID]['months'][$monthNumber] = true;
+                $classTotals[$classKey]['months'][$monthNumber] = true;
+            }
+            $classTotals[$classKey]['due'] += $balance;
+            $classTotals[$classKey]['students'][$studentID] = true;
+        }
+
+        foreach ($studentTotals as $studentID => $totals) {
+            $studentTotals[$studentID]['months'] = count($totals['months']);
+        }
+        foreach ($classTotals as $classKey => $totals) {
+            $classTotals[$classKey]['months'] = count($totals['months']);
+            $classTotals[$classKey]['students'] = count($totals['students']);
+        }
+
+        $months = array();
+        foreach ($academicMonths as $monthNumber) {
+            $academicIndex = array_search($monthNumber, $academicMonths, true);
+            if ($academicIndex > $currentAcademicIndex) {
+                break;
+            }
+            $months[] = array(
+                'month' => $monthNumber,
+                'label' => substr($monthNames[$monthNumber], 0, 3),
+                'assigned' => (float) ($monthTotals[$monthNumber]['assigned'] ?? 0),
+                'received' => (float) ($monthTotals[$monthNumber]['received'] ?? 0),
+            );
+        }
+
+        return array(
+            'classes' => $classTotals,
+            'students' => $studentTotals,
+            'months' => $months,
+        );
     }
 
     public function get_student_wise_last_balance($class_id, $session_id = '', $branch_id = '')
@@ -1638,6 +2179,8 @@ class Fees_model extends MY_Model
         $this->db->join('enroll e', 'e.student_id = sfa.student_id AND e.class_id = sfa.class_id', 'inner');
         $this->db->join('student s', 's.id = sfa.student_id', 'inner');
         $this->db->where('e.session_id', $session_id);
+        $this->db->join('fees_type ft', 'ft.id = sfa.fee_type_id', 'left');
+        $this->db->where("LOWER(TRIM(REPLACE(ft.fee_name, ' ', ''))) <>", 'class-1');
         $this->db->where('sfa.class_id', $class_id);
         $this->db->where('e.class_id', $class_id);
         $this->db->where('s.active', 1);
@@ -1665,6 +2208,8 @@ class Fees_model extends MY_Model
         $this->db->join('enroll e', 'e.student_id = sfa.student_id AND e.class_id = sfa.class_id', 'inner');
         $this->db->join('student s', 's.id = sfa.student_id', 'inner');
         $this->db->where('e.session_id', $session_id);
+        $this->db->join('fees_type ft', 'ft.id = sfa.fee_type_id', 'left');
+        $this->db->where("LOWER(TRIM(REPLACE(ft.fee_name, ' ', ''))) <>", 'class-1');
         $this->db->where('sfa.class_id', $class_id);
         $this->db->where('e.class_id', $class_id);
         $this->db->where('s.active', 1);
@@ -1745,25 +2290,40 @@ class Fees_model extends MY_Model
 
     public function getStudentFeeDetails($enroll_id = '')
     {
-        $enroll = $this->db->select('e.student_id, e.class_id')
+        $enroll = $this->db->select('e.student_id, e.class_id, e.session_id, e.branch_id, s.category_id, s.admission_date, sc.name as category_name')
             ->from('enroll e')
+            ->join('student s', 's.id = e.student_id', 'inner')
+            ->join('student_category sc', 'sc.id = s.category_id', 'left')
             ->where('e.id', $enroll_id)
             ->get()->row_array();
         if (empty($enroll)) {
             return array();
         }
 
+        $this->allocateFeesForStudent($enroll['student_id'], $enroll['class_id'], $enroll['branch_id']);
+
         $lastBalance = $this->db->select('last_balance')
             ->where(array('student_id' => $enroll['student_id'], 'session_id' => get_session_id()))
             ->get('student_last_balance')
             ->row('last_balance');
 
-        $this->db->select('sfa.*, ft.fee_name');
+        $this->db->select('sfa.*, COALESCE(fm.student_category, sfa.student_category_id) as eligible_categories, ft.fee_name');
         $this->db->from('student_fee_allocation sfa');
+        $this->db->join('fee_master fm', 'fm.id = sfa.fee_master_id', 'left');
         $this->db->join('fees_type ft', 'ft.id = sfa.fee_type_id', 'left');
         $this->db->where('sfa.student_id', $enroll['student_id']);
         $this->db->where('sfa.class_id', $enroll['class_id']);
         $rows = $this->db->order_by('sfa.month', 'asc')->get()->result_array();
+        $rows = array_values(array_filter($rows, function ($row) use ($enroll) {
+            return $this->isStudentEligibleForFeeCategories(
+                $row['fee_name'] ?? '',
+                $row['eligible_categories'] ?? '',
+                $enroll['category_id'] ?? '',
+                $enroll['category_name'] ?? '',
+                $enroll['admission_date'] ?? '',
+                $enroll['session_id']
+            );
+        }));
 
         // Paid discount / fine / receipts from fee_collect (after pay)
         $collectMap = array();
@@ -1778,6 +2338,9 @@ class Fees_model extends MY_Model
             $this->db->from('fee_collect fc');
             $this->db->join('payment_types pt', 'pt.id = fc.pay_via', 'left');
             $this->db->where_in('fc.allocation_id', $allocationIds);
+            if ($this->db->table_exists('fee_receipt_reversals')) {
+                $this->db->where('NOT EXISTS (SELECT 1 FROM fee_receipt_reversals fr WHERE fr.branch_id = fc.branch_id AND fr.receipt_no = fc.receipt_no)', null, false);
+            }
             $this->db->group_by('fc.allocation_id');
             foreach ($this->db->get()->result_array() as $cRow) {
                 $collectMap[$cRow['allocation_id']] = $cRow;
@@ -1864,6 +2427,9 @@ class Fees_model extends MY_Model
         $this->db->join('transport_fee_details as tfd', 'tfd.id = fc.trans_fd_id', 'left');
         $this->db->join('transport_fee_fine as tff', 'tff.id = tfd.transport_fee_fine_id', 'left');
         $this->db->where('fc.student_id', $student_id);
+        if ($this->db->table_exists('fee_receipt_reversals')) {
+            $this->db->where('NOT EXISTS (SELECT 1 FROM fee_receipt_reversals fr WHERE fr.branch_id = fc.branch_id AND fr.receipt_no = fc.receipt_no)', null, false);
+        }
         $this->db->order_by('fc.id', 'asc');
         $rows = $this->db->get()->result_array();
 
@@ -1897,6 +2463,473 @@ class Fees_model extends MY_Model
         }
 
         return $result;
+    }
+
+    public function getStudentPaymentReceipts($studentID, $branchID)
+    {
+        $receipts = array();
+        if (empty($studentID) || empty($branchID)) {
+            return $receipts;
+        }
+
+        if ($this->db->table_exists('fee_collect')) {
+            $this->db->select('fc.id, fc.receipt_no, fc.date, fc.paid_amount, fc.discount, fc.fine, fc.remarks,
+                    fc.fee_type, fc.allocation_id, fc.account_id, ft.fee_name, pt.name as payment_method', false);
+            $this->db->from('fee_collect fc');
+            if ($this->db->table_exists('fee_receipt_reversals')) {
+                $this->db->select('fr.reason as reversal_reason, fr.reversed_at, fr.reversed_by');
+                $this->db->join('fee_receipt_reversals fr', 'fr.branch_id = fc.branch_id AND fr.receipt_no = fc.receipt_no', 'left', false);
+            }
+            $rows = $this
+                ->db->join('fees_type ft', 'ft.id = fc.fee_type_id', 'left')
+                ->join('payment_types pt', 'pt.id = fc.pay_via', 'left')
+                ->where('fc.student_id', $studentID)
+                ->where('fc.branch_id', $branchID)
+                ->order_by('fc.date', 'desc')
+                ->order_by('fc.receipt_no', 'desc')
+                ->order_by('fc.id', 'desc')
+                ->get()
+                ->result_array();
+
+            foreach ($rows as $row) {
+                $receiptKey = 'RCP-' . (int) $row['receipt_no'];
+                if (!isset($receipts[$receiptKey])) {
+                    $receipts[$receiptKey] = array(
+                        'receipt_key' => $receiptKey,
+                        'receipt_label' => 'RCP-' . str_pad((string) $row['receipt_no'], 5, '0', STR_PAD_LEFT),
+                        'date' => $row['date'],
+                        'payment_method' => $row['payment_method'] ?? '',
+                        'remarks' => $row['remarks'] ?? '',
+                        'total_amount' => 0,
+                        'total_discount' => 0,
+                        'total_fine' => 0,
+                        'total_paid' => 0,
+                        'items' => array(),
+                        'source' => 'collection',
+                        'reversal_reason' => $row['reversal_reason'] ?? '',
+                        'reversed_at' => $row['reversed_at'] ?? '',
+                    );
+                }
+                $feeName = $row['fee_name'] ?? '';
+                if (empty($feeName)) {
+                    $feeName = ($row['fee_type'] ?? '') === 'transport'
+                        ? 'Transport Fee'
+                        : ((($row['fee_type'] ?? '') === 'last_balance') ? 'Last Year Balance' : 'Fee');
+                }
+                $item = array(
+                    'id' => $row['id'],
+                    'name' => $feeName,
+                    'amount' => (float) $row['paid_amount'] + (float) $row['discount'],
+                    'discount' => (float) $row['discount'],
+                    'fine' => (float) $row['fine'],
+                    'paid' => (float) $row['paid_amount'],
+                    'fee_type' => $row['fee_type'],
+                    'allocation_id' => $row['allocation_id'],
+                    'account_id' => $row['account_id'],
+                );
+                $receipts[$receiptKey]['items'][] = $item;
+                $receipts[$receiptKey]['total_amount'] += $item['amount'];
+                $receipts[$receiptKey]['total_discount'] += $item['discount'];
+                $receipts[$receiptKey]['total_fine'] += $item['fine'];
+                $receipts[$receiptKey]['total_paid'] += $item['paid'];
+            }
+            foreach ($receipts as &$receipt) {
+                $receipt['is_reversed'] = !empty($receipt['reversed_at']);
+                $receipt['can_reverse'] = $this->canReverseFeeReceipt($receipt);
+                $receipt['can_correct'] = $receipt['can_reverse'];
+            }
+            unset($receipt);
+        }
+
+        $legacyRows = $this->db->select('h.id, h.date, h.amount, h.discount, h.fine, h.remarks, h.pay_via,
+                ft.fee_name, pt.name as payment_method, tfd.month as transport_month', false)
+            ->from('fee_payment_history h')
+            ->join('fee_allocation fa', 'fa.id = h.allocation_id', 'left')
+            ->join('transport_fee_details tfd', 'tfd.id = h.transport_fee_details_id', 'left')
+            ->join('enroll e', 'e.id = COALESCE(fa.student_id, tfd.enroll_id)', 'inner', false)
+            ->join('fees_type ft', 'ft.id = h.type_id', 'left')
+            ->join('payment_types pt', 'pt.id = h.pay_via', 'left')
+            ->where('e.student_id', $studentID)
+            ->where('e.branch_id', $branchID)
+            ->order_by('h.date', 'desc')
+            ->order_by('h.id', 'desc')
+            ;
+        if ($this->db->table_exists('fee_collect')) {
+            $this->db->where(
+                "NOT EXISTS (
+                    SELECT 1 FROM fee_collect fc
+                    WHERE fc.student_id = e.student_id
+                      AND fc.branch_id = e.branch_id
+                      AND fc.fee_type = 'transport'
+                      AND fc.trans_fd_id = h.transport_fee_details_id
+                      AND fc.date = h.date
+                      AND fc.paid_amount = h.amount
+                      AND fc.discount = h.discount
+                      AND fc.fine = h.fine
+                )",
+                null,
+                false
+            );
+        }
+        $legacyRows = $this->db->get()->result_array();
+
+        foreach ($legacyRows as $row) {
+            $receiptKey = 'LEGACY-' . (int) $row['id'];
+            $amount = (float) $row['amount'] + (float) $row['discount'];
+            $feeName = $row['fee_name'] ?? '';
+            if (empty($feeName)) {
+                $feeName = !empty($row['transport_month'])
+                    ? 'Transport Fee - Month ' . (int) $row['transport_month']
+                    : 'Fee';
+            }
+            $receipts[$receiptKey] = array(
+                'receipt_key' => $receiptKey,
+                'receipt_label' => 'Legacy #' . (int) $row['id'],
+                'date' => $row['date'],
+                'payment_method' => $row['payment_method'] ?? '',
+                'remarks' => $row['remarks'] ?? '',
+                'total_amount' => $amount,
+                'total_discount' => (float) $row['discount'],
+                'total_fine' => (float) $row['fine'],
+                'total_paid' => (float) $row['amount'],
+                'items' => array(array(
+                    'id' => $row['id'],
+                    'name' => $feeName,
+                    'amount' => $amount,
+                    'discount' => (float) $row['discount'],
+                    'fine' => (float) $row['fine'],
+                    'paid' => (float) $row['amount'],
+                )),
+                'source' => 'legacy',
+                'is_reversed' => false,
+                'can_reverse' => false,
+            );
+        }
+
+        uasort($receipts, function ($left, $right) {
+            $dateCompare = strcmp((string) $right['date'], (string) $left['date']);
+            return $dateCompare !== 0 ? $dateCompare : strcmp($right['receipt_label'], $left['receipt_label']);
+        });
+        return array_values($receipts);
+    }
+
+    private function canReverseFeeReceipt($receipt)
+    {
+        if (!$this->db->table_exists('fee_receipt_reversals')
+            || empty($receipt['items'])
+            || !empty($receipt['is_reversed'])) {
+            return false;
+        }
+        foreach ($receipt['items'] as $item) {
+            if (($item['fee_type'] ?? '') !== 'general'
+                || empty($item['allocation_id'])) {
+                return false;
+            }
+            $links = $this->getFeeCollectionAccountingLinks($item['id']);
+            if (!empty($item['account_id'])) {
+                if (count($links) !== 1 || (int) $links[0]['account_id'] !== (int) $item['account_id']) {
+                    return false;
+                }
+            } elseif (!empty($links)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private function getFeeCollectionAccountingLinks($paymentID)
+    {
+        if (!$this->db->table_exists('transactions_links_details') || !$this->db->table_exists('transactions')) {
+            return array();
+        }
+        return $this->db->select('tld.transactions_id, t.account_id, t.amount, t.cr, t.bal, t.type, t.branch_id', false)
+            ->from('transactions_links_details tld')
+            ->join('transactions t', 't.id = tld.transactions_id', 'inner')
+            ->where('tld.payment_id', $paymentID)
+            ->get()
+            ->result_array();
+    }
+
+    public function reverseFeeReceipt($studentID, $branchID, $receiptNo, $reason, $userID)
+    {
+        if (!$this->db->table_exists('fee_receipt_reversals')) {
+            return array('status' => 'fail', 'message' => 'Receipt reversal support is not installed yet.');
+        }
+        if (empty($studentID) || empty($branchID) || empty($receiptNo) || trim($reason) === '') {
+            return array('status' => 'fail', 'message' => 'A reversal reason is required.');
+        }
+
+        $this->db->trans_begin();
+        $this->db->where(array(
+            'branch_id' => $branchID,
+            'receipt_no' => $receiptNo,
+        ));
+        if ($this->db->count_all_results('fee_receipt_reversals') > 0) {
+            $this->db->trans_rollback();
+            return array('status' => 'fail', 'message' => 'This receipt has already been reversed.');
+        }
+
+        $rows = $this->db->query(
+            'SELECT * FROM fee_collect WHERE branch_id = ? AND student_id = ? AND receipt_no = ? FOR UPDATE',
+            array($branchID, $studentID, $receiptNo)
+        )->result_array();
+        if (empty($rows)) {
+            $this->db->trans_rollback();
+            return array('status' => 'fail', 'message' => 'Receipt not found.');
+        }
+
+        foreach ($rows as $row) {
+            if (($row['fee_type'] ?? '') !== 'general'
+                || empty($row['allocation_id'])) {
+                $this->db->trans_rollback();
+                return array('status' => 'fail', 'message' => 'This receipt contains a fee type that cannot be reversed here. No changes were made.');
+            }
+            $accountingLinks = $this->getFeeCollectionAccountingLinks($row['id']);
+            if (!empty($row['account_id'])) {
+                if (count($accountingLinks) !== 1
+                    || (int) $accountingLinks[0]['account_id'] !== (int) $row['account_id']
+                    || strtolower((string) $accountingLinks[0]['type']) !== 'deposit'
+                    || (int) $accountingLinks[0]['branch_id'] !== (int) $branchID) {
+                    $this->db->trans_rollback();
+                    return array('status' => 'fail', 'message' => 'The linked account transaction is missing or inconsistent. No changes were made.');
+                }
+            } elseif (!empty($accountingLinks)) {
+                $this->db->trans_rollback();
+                return array('status' => 'fail', 'message' => 'An unexpected accounting link was found. No changes were made.');
+            }
+
+            $allocation = $this->db->query(
+                'SELECT * FROM student_fee_allocation WHERE id = ? FOR UPDATE',
+                array($row['allocation_id'])
+            )->row_array();
+            $appliedAmount = (float) $row['paid_amount'] + (float) $row['discount'];
+            if (empty($allocation) || (float) $allocation['paid'] + 0.001 < $appliedAmount) {
+                $this->db->trans_rollback();
+                return array('status' => 'fail', 'message' => 'The allocation balance no longer matches this receipt. No changes were made.');
+            }
+
+            if (!empty($accountingLinks)) {
+                $transaction = $accountingLinks[0];
+                $accountingAmount = (float) $row['paid_amount'] + (float) $row['fine'];
+                if ((float) $transaction['amount'] + 0.001 < $accountingAmount
+                    || (float) $transaction['cr'] + 0.001 < $accountingAmount) {
+                    $this->db->trans_rollback();
+                    return array('status' => 'fail', 'message' => 'The linked account transaction balance no longer matches this receipt. No changes were made.');
+                }
+                $this->db->set('amount', 'amount - ' . $this->db->escape($accountingAmount), false);
+                $this->db->set('cr', 'cr - ' . $this->db->escape($accountingAmount), false);
+                $this->db->set('bal', 'bal - ' . $this->db->escape($accountingAmount), false);
+                $this->db->where('id', $transaction['transactions_id'])->update('transactions');
+                $this->db->set('balance', 'balance - ' . $this->db->escape($accountingAmount), false);
+                $this->db->where('id', $transaction['account_id'])->update('accounts');
+            }
+
+            $newPaid = max(0, (float) $allocation['paid'] - $appliedAmount);
+            $this->db->where('id', $allocation['id'])->update('student_fee_allocation', array(
+                'paid' => $newPaid,
+                'balance' => max(0, (float) $allocation['amount'] - $newPaid),
+            ));
+        }
+
+        $this->db->insert('fee_receipt_reversals', array(
+            'branch_id' => $branchID,
+            'student_id' => $studentID,
+            'receipt_no' => $receiptNo,
+            'reason' => trim($reason),
+            'reversed_by' => $userID,
+            'reversed_at' => date('Y-m-d H:i:s'),
+        ));
+        if ($this->db->trans_status() === false) {
+            $this->db->trans_rollback();
+            return array('status' => 'fail', 'message' => 'The reversal could not be saved. No changes were committed.');
+        }
+        $this->db->trans_commit();
+        return array('status' => 'success', 'message' => 'Receipt reversed. The original receipt remains in history for audit purposes; collect the corrected amount as a new receipt.');
+    }
+
+    public function correctFeeReceipt($studentID, $branchID, $receiptNo, $correctedAmounts, $reason, $userID)
+    {
+        if (!$this->db->table_exists('fee_receipt_reversals')) {
+            return array('status' => 'fail', 'message' => 'Receipt correction support is not installed yet.');
+        }
+        if (empty($studentID) || empty($branchID) || empty($receiptNo)
+            || !is_array($correctedAmounts) || trim($reason) === '') {
+            return array('status' => 'fail', 'message' => 'A correction reason and valid corrected amounts are required.');
+        }
+
+        $this->db->trans_begin();
+        $this->db->where(array('branch_id' => $branchID, 'receipt_no' => $receiptNo));
+        if ($this->db->count_all_results('fee_receipt_reversals') > 0) {
+            $this->db->trans_rollback();
+            return array('status' => 'fail', 'message' => 'This receipt has already been reversed or corrected.');
+        }
+
+        $rows = $this->db->query(
+            'SELECT * FROM fee_collect WHERE branch_id = ? AND student_id = ? AND receipt_no = ? ORDER BY id FOR UPDATE',
+            array($branchID, $studentID, $receiptNo)
+        )->result_array();
+        if (empty($rows) || count($rows) !== count($correctedAmounts)) {
+            $this->db->trans_rollback();
+            return array('status' => 'fail', 'message' => 'Receipt items changed or could not be verified. Refresh the page and try again.');
+        }
+
+        $originalItems = array();
+        $allocationChanges = array();
+        $replacementRows = array();
+        $hasChanges = false;
+        foreach ($rows as $row) {
+            $paymentID = (int) $row['id'];
+            if (!array_key_exists($paymentID, $correctedAmounts)
+                || ($row['fee_type'] ?? '') !== 'general'
+                || empty($row['allocation_id'])) {
+                $this->db->trans_rollback();
+                return array('status' => 'fail', 'message' => 'Only standard allocated-fee receipts can be corrected here. No changes were made.');
+            }
+
+            $correctedGross = $correctedAmounts[$paymentID];
+            if (!is_numeric($correctedGross) || !is_finite((float) $correctedGross)) {
+                $this->db->trans_rollback();
+                return array('status' => 'fail', 'message' => 'Each corrected amount must be a valid number.');
+            }
+            $correctedGross = round((float) $correctedGross, 2);
+            $discount = (float) $row['discount'];
+            if ($correctedGross < $discount || $correctedGross <= 0) {
+                $this->db->trans_rollback();
+                return array('status' => 'fail', 'message' => 'Corrected amount must be greater than zero and cannot be less than its discount.');
+            }
+            $originalGross = (float) $row['paid_amount'] + $discount;
+            if (abs($correctedGross - $originalGross) > 0.001) {
+                $hasChanges = true;
+            }
+
+            $allocation = $this->db->query(
+                'SELECT * FROM student_fee_allocation WHERE id = ? FOR UPDATE',
+                array($row['allocation_id'])
+            )->row_array();
+            if (empty($allocation)) {
+                $this->db->trans_rollback();
+                return array('status' => 'fail', 'message' => 'A fee allocation linked to this receipt no longer exists. No changes were made.');
+            }
+            $allocationID = (int) $allocation['id'];
+            if (!isset($allocationChanges[$allocationID])) {
+                $allocationChanges[$allocationID] = array(
+                    'allocation' => $allocation,
+                    'old_total' => 0,
+                    'new_total' => 0,
+                );
+            }
+            $allocationChanges[$allocationID]['old_total'] += $originalGross;
+            $allocationChanges[$allocationID]['new_total'] += $correctedGross;
+
+            $accountingLinks = $this->getFeeCollectionAccountingLinks($paymentID);
+            if (!empty($row['account_id'])) {
+                if (count($accountingLinks) !== 1
+                    || (int) $accountingLinks[0]['account_id'] !== (int) $row['account_id']
+                    || strtolower((string) $accountingLinks[0]['type']) !== 'deposit'
+                    || (int) $accountingLinks[0]['branch_id'] !== (int) $branchID) {
+                    $this->db->trans_rollback();
+                    return array('status' => 'fail', 'message' => 'The linked account transaction is missing or inconsistent. No changes were made.');
+                }
+                $transaction = $accountingLinks[0];
+                $accountingAmount = (float) $row['paid_amount'] + (float) $row['fine'];
+                if ((float) $transaction['amount'] + 0.001 < $accountingAmount
+                    || (float) $transaction['cr'] + 0.001 < $accountingAmount) {
+                    $this->db->trans_rollback();
+                    return array('status' => 'fail', 'message' => 'The linked account transaction no longer matches this receipt. No changes were made.');
+                }
+                $this->db->set('amount', 'amount - ' . $this->db->escape($accountingAmount), false);
+                $this->db->set('cr', 'cr - ' . $this->db->escape($accountingAmount), false);
+                $this->db->set('bal', 'bal - ' . $this->db->escape($accountingAmount), false);
+                $this->db->where('id', $transaction['transactions_id'])->update('transactions');
+                $this->db->set('balance', 'balance - ' . $this->db->escape($accountingAmount), false);
+                $this->db->where('id', $transaction['account_id'])->update('accounts');
+            } elseif (!empty($accountingLinks)) {
+                $this->db->trans_rollback();
+                return array('status' => 'fail', 'message' => 'An unexpected accounting link was found. No changes were made.');
+            }
+
+            $originalItems[] = array(
+                'payment_id' => $paymentID,
+                'allocation_id' => $allocationID,
+                'paid_amount' => (float) $row['paid_amount'],
+                'discount' => $discount,
+                'fine' => (float) $row['fine'],
+                'corrected_gross_amount' => $correctedGross,
+            );
+            $row['paid_amount'] = $correctedGross - $discount;
+            $row['receipt_no'] = null;
+            $row['created_at'] = date('Y-m-d H:i:s');
+            $row['remarks'] = trim((string) $row['remarks'] . ' | Corrected from receipt RCP-' . (int) $receiptNo);
+            unset($row['id'], $row['updated_at']);
+            $replacementRows[] = $row;
+        }
+
+        if (!$hasChanges) {
+            $this->db->trans_rollback();
+            return array('status' => 'fail', 'message' => 'No amount changes were entered.');
+        }
+
+        foreach ($allocationChanges as $change) {
+            $allocation = $change['allocation'];
+            $paid = (float) $allocation['paid'] - $change['old_total'] + $change['new_total'];
+            if ($paid < -0.001 || $paid > (float) $allocation['amount'] + 0.001) {
+                $this->db->trans_rollback();
+                return array('status' => 'fail', 'message' => 'Corrected amounts would exceed the fee allocation or conflict with later payments. No changes were made.');
+            }
+            $paid = max(0, $paid);
+            $this->db->where('id', $allocation['id'])->update('student_fee_allocation', array(
+                'paid' => $paid,
+                'balance' => max(0, (float) $allocation['amount'] - $paid),
+            ));
+        }
+
+        $replacementReceiptNo = $this->getNextFeeCollectReceiptNo($branchID);
+        foreach ($replacementRows as $replacementRow) {
+            $replacementRow['receipt_no'] = $replacementReceiptNo;
+            $this->db->insert('fee_collect', $replacementRow);
+            $replacementPaymentID = $this->db->insert_id();
+            if (!empty($replacementRow['account_id'])) {
+                $this->saveTransaction(array(
+                    'account_id' => $replacementRow['account_id'],
+                    'amount' => (float) $replacementRow['paid_amount'] + (float) $replacementRow['fine'],
+                    'date' => $replacementRow['date'],
+                ), $replacementPaymentID, $branchID);
+            }
+        }
+
+        $correctionAuditReason = trim($reason) . ' | Corrected; replacement receipt RCP-'
+            . str_pad((string) $replacementReceiptNo, 5, '0', STR_PAD_LEFT);
+        $this->db->insert('fee_receipt_reversals', array(
+            'branch_id' => $branchID,
+            'student_id' => $studentID,
+            'receipt_no' => $receiptNo,
+            'reason' => $correctionAuditReason,
+            'reversed_by' => $userID,
+            'reversed_at' => date('Y-m-d H:i:s'),
+        ));
+        if ($this->db->table_exists('fee_receipt_corrections')) {
+            $this->db->insert('fee_receipt_corrections', array(
+                'branch_id' => $branchID,
+                'student_id' => $studentID,
+                'original_receipt_no' => $receiptNo,
+                'replacement_receipt_no' => $replacementReceiptNo,
+                'reason' => trim($reason),
+                'original_items' => json_encode($originalItems),
+                'corrected_by' => $userID,
+                'corrected_at' => date('Y-m-d H:i:s'),
+            ));
+        }
+        if ($this->db->trans_status() === false) {
+            $this->db->trans_rollback();
+            return array('status' => 'fail', 'message' => 'The receipt correction could not be saved. No changes were committed.');
+        }
+
+        $this->db->trans_commit();
+        return array(
+            'status' => 'success',
+            'message' => 'Receipt corrected. The original is retained as reversed; the corrected amount was reissued as RCP-' . str_pad((string) $replacementReceiptNo, 5, '0', STR_PAD_LEFT) . '.',
+            'replacement_receipt_no' => $replacementReceiptNo,
+        );
     }
 
     public function getStudentSalesBills($student_id = '')
@@ -1944,6 +2977,8 @@ class Fees_model extends MY_Model
             return false;
         }
 
+        $data['student_category'] = $this->normalizeStudentCategoryIDs($data['student_category'] ?? array());
+        $this->db->trans_begin();
         $master = array(
             'branch_id' => $data['branch_id'],
             'fee_types' => $data['fee_type_id'],
@@ -1980,6 +3015,11 @@ class Fees_model extends MY_Model
         }
 
         $this->allocateFeeMasterToStudents($masterID);
+        if ($this->db->trans_status() === false) {
+            $this->db->trans_rollback();
+            return false;
+        }
+        $this->db->trans_commit();
         return $masterID;
     }
 
@@ -1990,6 +3030,8 @@ class Fees_model extends MY_Model
             return false;
         }
 
+        $data['student_category'] = $this->normalizeStudentCategoryIDs($data['student_category'] ?? array());
+        $this->db->trans_begin();
         $this->db->where('id', $feeMasterID)->update('fee_master', array(
             'branch_id' => $data['branch_id'],
             'fee_types' => $data['fee_type_id'],
@@ -2000,6 +3042,11 @@ class Fees_model extends MY_Model
         $data['classes'] = $data['classes'] ?? array();
         $this->saveFeeMasterClasswiseRows($feeMasterID, $data, $feeType['month']);
         $this->allocateFeeMasterToStudents($feeMasterID);
+        if ($this->db->trans_status() === false) {
+            $this->db->trans_rollback();
+            return false;
+        }
+        $this->db->trans_commit();
         return true;
     }
 
@@ -2017,110 +3064,37 @@ class Fees_model extends MY_Model
             return 0;
         }
 
-        $classwiseRows = $this->db->get_where('fee_master_classwise', array('fee_master_id' => $feeMasterID))->result_array();
-        if (empty($classwiseRows)) {
-            return 0;
-        }
-
         $sessionID = get_session_id();
+        $classwiseRows = $this->db->select('fmc.*, ft.fee_name, fm.student_category as master_student_category')
+            ->from('fee_master_classwise fmc')
+            ->join('fee_master fm', 'fm.id = fmc.fee_master_id', 'inner')
+            ->join('fees_type ft', 'ft.id = fmc.fee_type_id', 'left')
+            ->where('fmc.fee_master_id', $feeMasterID)
+            ->get()
+            ->result_array();
+
+        $students = $this->db->select('e.student_id, e.class_id, e.session_id, s.category_id, s.admission_date, sc.name as category_name')
+            ->from('enroll e')
+            ->join('student s', 's.id = e.student_id', 'inner')
+            ->join('student_category sc', 'sc.id = s.category_id', 'left')
+            ->where('e.session_id', $sessionID)
+            ->where('e.branch_id', $master['branch_id'])
+            ->where('s.active', 1)
+            ->get()
+            ->result_array();
+
         $inserted = 0;
-        $batch = array();
-
-        foreach ($classwiseRows as $record) {
-            $monthsArr = array_filter(array_map('trim', explode(',', (string) $record['month'])));
-            if (empty($monthsArr)) {
-                continue;
-            }
-
-            $categories = json_decode($record['student_category_id'], true);
-            if (!is_array($categories)) {
-                $categories = array();
-            }
-            $categories = array_map('strval', $categories);
-
-            $this->db->select('e.student_id, s.category_id');
-            $this->db->from('enroll e');
-            $this->db->join('student s', 's.id = e.student_id', 'inner');
-            $this->db->where('e.class_id', $record['class_id']);
-            $this->db->where('e.session_id', $sessionID);
-            $this->db->where('e.branch_id', $master['branch_id']);
-            $this->db->where('s.active', 1);
-            $students = $this->db->get()->result_array();
-
-            foreach ($students as $student) {
-                $studentCategory = (string) ($student['category_id'] ?? '');
-                if (!empty($categories) && !in_array($studentCategory, $categories, true)) {
-                    continue;
-                }
-
-                $fineCalculated = (float) ($record['fine_calculated_amount'] ?? 0);
-                if ($record['fine_type'] == 'percentage' && !empty($record['per_val'])) {
-                    $fineCalculated = ((float) $record['amount'] * (float) $record['per_val']) / 100;
-                } elseif (($record['fine_type'] == 'fix amount' || $record['fine_type'] == 'fixed') && !empty($record['amt_val'])) {
-                    $fineCalculated = (float) $record['amt_val'];
-                }
-
-                foreach ($monthsArr as $month) {
-                    $month = (string) (int) $month;
-                    if ($month === '0') {
-                        continue;
-                    }
-
-                    $exists = $this->db->get_where('student_fee_allocation', array(
-                        'student_id' => $student['student_id'],
-                        'class_id' => $record['class_id'],
-                        'fee_master_id' => $feeMasterID,
-                        'month' => $month,
-                    ))->row_array();
-
-                    if (!empty($exists)) {
-                        // Refresh unpaid rows so structure edits apply
-                        if ((float) ($exists['paid'] ?? 0) <= 0) {
-                            $this->db->where('id', $exists['id'])->update('student_fee_allocation', array(
-                                'fee_type_id' => $record['fee_type_id'],
-                                'student_category_id' => $record['student_category_id'],
-                                'amount' => $record['amount'],
-                                'balance' => $record['amount'],
-                                'due_date' => $record['due_date'],
-                                'fine_type' => $record['fine_type'] ?? '',
-                                'per_val' => (int) ($record['per_val'] ?? 0),
-                                'fine_calculated_amount' => $fineCalculated,
-                                'amt_val' => (int) ($record['amt_val'] ?? 0),
-                            ));
-                        }
-                        continue;
-                    }
-
-                    $batch[] = array(
-                        'student_id' => $student['student_id'],
-                        'class_id' => $record['class_id'],
-                        'fee_type_id' => $record['fee_type_id'],
-                        'student_category_id' => $record['student_category_id'],
-                        'fee_master_id' => $feeMasterID,
-                        'amount' => $record['amount'],
-                        'paid' => 0,
-                        'balance' => $record['amount'],
-                        'month' => $month,
-                        'due_date' => $record['due_date'],
-                        'fine_type' => $record['fine_type'] ?? '',
-                        'per_val' => (int) ($record['per_val'] ?? 0),
-                        'fine_calculated_amount' => $fineCalculated,
-                        'amt_val' => (int) ($record['amt_val'] ?? 0),
-                        'created_at' => date('Y-m-d H:i:s'),
-                    );
-
-                    if (count($batch) >= 200) {
-                        $this->db->insert_batch('student_fee_allocation', $batch);
-                        $inserted += count($batch);
-                        $batch = array();
-                    }
-                }
-            }
-        }
-
-        if (!empty($batch)) {
-            $this->db->insert_batch('student_fee_allocation', $batch);
-            $inserted += count($batch);
+        foreach ($students as $student) {
+            $inserted += $this->syncStudentFeeAllocations(
+                $student['student_id'],
+                $student['class_id'],
+                $student['category_id'],
+                $student['category_name'] ?? '',
+                $student['admission_date'] ?? '',
+                $student['session_id'],
+                $classwiseRows,
+                $feeMasterID
+            );
         }
 
         return $inserted;
@@ -2144,97 +3118,183 @@ class Fees_model extends MY_Model
     /**
      * Assign all matching fee structure rows to one student (used on admission).
      */
-    public function allocateFeesForStudent($studentID, $classID, $branchID = '', $studentCategory = null)
+    public function allocateFeesForStudent($studentID, $classID, $branchID = '', $sessionID = null)
     {
         if (empty($studentID) || empty($classID)) {
             return 0;
         }
+        $sessionID = !empty($sessionID) ? $sessionID : get_session_id();
 
-        if ($studentCategory === null) {
-            $studentCategory = $this->db->select('category_id')
-                ->where('id', $studentID)
-                ->get('student')
-                ->row('category_id');
+        $this->db->select('s.category_id, s.admission_date, sc.name as category_name');
+        $this->db->from('student s');
+        $this->db->join('student_category sc', 'sc.id = s.category_id', 'left');
+        $this->db->where('s.id', $studentID);
+        $student = $this->db->get()->row_array();
+        if (empty($student)) {
+            return 0;
         }
-        $studentCategory = (string) $studentCategory;
 
-        $this->db->select('fmc.*');
+        $this->db->select('fmc.*, ft.fee_name, fm.student_category as master_student_category');
         $this->db->from('fee_master_classwise fmc');
         $this->db->join('fee_master fm', 'fm.id = fmc.fee_master_id', 'inner');
+        $this->db->join('fees_type ft', 'ft.id = fmc.fee_type_id', 'left');
         $this->db->where('fmc.class_id', $classID);
         if (!empty($branchID)) {
             $this->db->where('fm.branch_id', $branchID);
         }
         $records = $this->db->get()->result_array();
-        if (empty($records)) {
-            return 0;
-        }
+        return $this->syncStudentFeeAllocations(
+            $studentID,
+            $classID,
+            $student['category_id'],
+            $student['category_name'] ?? '',
+            $student['admission_date'] ?? '',
+            $sessionID,
+            $records
+        );
+    }
 
-        $batch = array();
-        $inserted = 0;
-        foreach ($records as $record) {
-            $categories = json_decode($record['student_category_id'], true);
-            if (!is_array($categories)) {
-                $categories = array();
-            }
-            $categories = array_map('strval', $categories);
-            if (!empty($categories) && $studentCategory !== '' && !in_array($studentCategory, $categories, true)) {
+    private function syncStudentFeeAllocations($studentID, $classID, $categoryID, $categoryName, $admissionDate, $sessionID, $feeMasterRows, $onlyMasterID = null)
+    {
+        $desired = array();
+        foreach ($feeMasterRows as $record) {
+            if ((int) $record['class_id'] !== (int) $classID
+                || !$this->isStudentEligibleForFeeCategories(
+                    $record['fee_name'] ?? '',
+                    $record['student_category_id'] ?? $record['master_student_category'] ?? '',
+                    $categoryID,
+                    $categoryName,
+                    $admissionDate,
+                    $sessionID
+                )) {
                 continue;
             }
 
-            $monthsArr = array_filter(array_map('trim', explode(',', (string) $record['month'])));
-            if (empty($monthsArr)) {
+            $amount = (float) ($record['amount'] ?? 0);
+            if ($amount <= 0) {
                 continue;
             }
 
-            $fineCalculated = (float) ($record['fine_calculated_amount'] ?? 0);
-            if ($record['fine_type'] == 'percentage' && !empty($record['per_val'])) {
-                $fineCalculated = ((float) $record['amount'] * (float) $record['per_val']) / 100;
-            } elseif (($record['fine_type'] == 'fix amount' || $record['fine_type'] == 'fixed') && !empty($record['amt_val'])) {
-                $fineCalculated = (float) $record['amt_val'];
-            }
-
-            foreach ($monthsArr as $month) {
-                $month = (string) (int) $month;
-                if ($month === '0') {
-                    continue;
+            $months = array_values(array_unique(array_filter(
+                array_map('intval', explode(',', (string) ($record['month'] ?? ''))),
+                function ($month) {
+                    return $month >= 1 && $month <= 12;
                 }
-
-                $exists = $this->db->get_where('student_fee_allocation', array(
-                    'student_id' => $studentID,
-                    'class_id' => $classID,
-                    'fee_master_id' => $record['fee_master_id'],
-                    'month' => $month,
-                ))->row_array();
-                if (!empty($exists)) {
-                    continue;
-                }
-
-                $batch[] = array(
+            )));
+            foreach ($months as $month) {
+                $key = $record['fee_master_id'] . ':' . $month;
+                $desired[$key] = array(
                     'student_id' => $studentID,
                     'class_id' => $classID,
                     'fee_type_id' => $record['fee_type_id'],
-                    'student_category_id' => $record['student_category_id'],
+                    'student_category_id' => $record['student_category_id'] ?? $record['master_student_category'] ?? '[]',
                     'fee_master_id' => $record['fee_master_id'],
-                    'amount' => $record['amount'],
-                    'paid' => 0,
-                    'balance' => $record['amount'],
-                    'month' => $month,
-                    'due_date' => $record['due_date'],
+                    'amount' => $amount,
+                    'month' => (string) $month,
+                    'due_date' => $record['due_date'] ?? null,
                     'fine_type' => $record['fine_type'] ?? '',
                     'per_val' => (int) ($record['per_val'] ?? 0),
-                    'fine_calculated_amount' => $fineCalculated,
+                    'fine_calculated_amount' => $this->getFeeMasterFineAmount($record),
                     'amt_val' => (int) ($record['amt_val'] ?? 0),
-                    'created_at' => date('Y-m-d H:i:s'),
                 );
             }
         }
 
-        if (!empty($batch)) {
-            $this->db->insert_batch('student_fee_allocation', $batch);
-            $inserted = count($batch);
+        $this->db->from('student_fee_allocation');
+        $this->db->where('student_id', $studentID);
+        $this->db->where('class_id', $classID);
+        if ($onlyMasterID !== null) {
+            $this->db->where('fee_master_id', $onlyMasterID);
+        } else {
+            $this->db->where('fee_master_id >', 0);
         }
+        $existingRows = $this->db->get()->result_array();
+        $inserted = 0;
+
+        foreach ($existingRows as $existing) {
+            $key = $existing['fee_master_id'] . ':' . (int) $existing['month'];
+            if (isset($desired[$key])) {
+                $configuration = $desired[$key];
+                unset($desired[$key]);
+                if (!$this->hasFeeAllocationPayments($existing)) {
+                    $configuration['balance'] = $configuration['amount'];
+                    $this->db->where('id', $existing['id'])->update('student_fee_allocation', $configuration);
+                }
+                // Keep receipt-backed fee rows unchanged; Fee Master edits must not rewrite collections.
+                continue;
+            }
+
+            if (!$this->hasFeeAllocationPayments($existing)) {
+                $this->db->where('id', $existing['id'])->delete('student_fee_allocation');
+            }
+        }
+
+        foreach ($desired as $configuration) {
+            $configuration['paid'] = 0;
+            $configuration['balance'] = $configuration['amount'];
+            $configuration['created_at'] = date('Y-m-d H:i:s');
+            $this->db->insert('student_fee_allocation', $configuration);
+            $inserted++;
+        }
+
         return $inserted;
+    }
+
+    private function getFeeMasterFineAmount($record)
+    {
+        $fineCalculated = (float) ($record['fine_calculated_amount'] ?? 0);
+        $fineType = strtolower(trim((string) ($record['fine_type'] ?? '')));
+        if ($fineType === 'percentage' && !empty($record['per_val'])) {
+            return ((float) $record['amount'] * (float) $record['per_val']) / 100;
+        }
+        if (in_array($fineType, array('fix amount', 'fixed'), true) && !empty($record['amt_val'])) {
+            return (float) $record['amt_val'];
+        }
+        return $fineCalculated;
+    }
+
+    private function hasFeeAllocationPayments($allocation)
+    {
+        if ((float) ($allocation['paid'] ?? 0) > 0) {
+            return true;
+        }
+
+        foreach (array('fee_collect', 'fee_payment_history') as $table) {
+            if ($this->db->table_exists($table)) {
+                $this->db->from($table);
+                $this->db->where('allocation_id', $allocation['id']);
+                if ($this->db->count_all_results() > 0) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    public function allocateFeesForEnrolledStudents($branchID = '')
+    {
+        if (empty($branchID)) {
+            return 0;
+        }
+
+        $students = $this->db->select('e.student_id,e.class_id')
+            ->from('enroll e')
+            ->join('student s', 's.id = e.student_id', 'inner')
+            ->where('e.branch_id', $branchID)
+            ->where('e.session_id', get_session_id())
+            ->where('s.active', 1)
+            ->get()
+            ->result_array();
+
+        $allocated = 0;
+        foreach ($students as $student) {
+            $allocated += $this->allocateFeesForStudent(
+                $student['student_id'],
+                $student['class_id'],
+                $branchID
+            );
+        }
+        return $allocated;
     }
 
     private function saveFeeMasterClasswiseRows($feeMasterID, $data, $months)
@@ -2280,8 +3340,7 @@ class Fees_model extends MY_Model
     public function getFeesLastStudents($classID = '', $sectionID = '')
     {
         $sessionID = get_session_id();
-        // Current balance = last-year carry forward + outstanding allocated fees (amount + fine - paid)
-        $this->db->select("s.id as student_id, s.register_no, CONCAT(s.first_name, ' ', s.last_name) as student_name, c.name as class_name, se.name as section_name, p.name as father_name, IFNULL(MAX(slb.last_balance), 0) as last_balance, (IFNULL(MAX(slb.last_balance), 0) + IFNULL(SUM(GREATEST(IFNULL(sfa.balance, 0), (IFNULL(sfa.amount, 0) + IFNULL(sfa.fine_calculated_amount, 0) - IFNULL(sfa.paid, 0)))), 0)) as current_balance, IFNULL(SUM(GREATEST(IFNULL(sfa.balance, 0), (IFNULL(sfa.amount, 0) + IFNULL(sfa.fine_calculated_amount, 0) - IFNULL(sfa.paid, 0)))), 0) as fee_outstanding", false);
+        $this->db->select("s.id as student_id, s.register_no, CONCAT(s.first_name, ' ', s.last_name) as student_name, c.name as class_name, se.name as section_name, p.name as father_name, IFNULL(slb.last_balance, 0) as last_balance, IFNULL(SUM(sfa.balance), 0) as current_balance");
         $this->db->from('enroll e');
         $this->db->join('student s', 's.id = e.student_id', 'inner');
         $this->db->join('class c', 'c.id = e.class_id', 'left');
@@ -2292,22 +3351,11 @@ class Fees_model extends MY_Model
         $this->db->where('e.session_id', $sessionID);
         $this->db->where('e.class_id', $classID);
         $this->db->where('e.section_id', $sectionID);
-        $this->db->where('s.active', 1);
-        $branchID = $this->application_model->get_branch_id();
-        if (!empty($branchID)) {
-            $this->db->where('e.branch_id', $branchID);
-        } elseif (!is_superadmin_loggedin()) {
+        if (!is_superadmin_loggedin()) {
             $this->db->where('e.branch_id', get_loggedin_branch_id());
         }
         $this->db->group_by('s.id');
-        $rows = $this->db->order_by('s.first_name', 'asc')->get()->result_array();
-        foreach ($rows as &$row) {
-            $row['last_balance'] = number_format((float) ($row['last_balance'] ?? 0), 2, '.', '');
-            $row['current_balance'] = number_format((float) ($row['current_balance'] ?? 0), 2, '.', '');
-            $row['fee_outstanding'] = number_format((float) ($row['fee_outstanding'] ?? 0), 2, '.', '');
-        }
-        unset($row);
-        return $rows;
+        return $this->db->order_by('s.first_name', 'asc')->get()->result_array();
     }
 
     public function saveStudentLastBalance($studentID, $balance, $sessionID = '')
@@ -2392,17 +3440,49 @@ class Fees_model extends MY_Model
     public function getFeeDefaulters($filters = array())
     {
         $sessionID = get_session_id();
-        $this->db->select("s.id as student_id, s.register_no, s.first_name, s.last_name, e.roll as roll_no, c.name as class_name, se.name as section_name, GROUP_CONCAT(DISTINCT ft.fee_name ORDER BY ft.fee_name SEPARATOR '\n') as fee_name, GROUP_CONCAT(sfa.amount ORDER BY ft.fee_name SEPARATOR '\n') as total_fee, GROUP_CONCAT(sfa.paid ORDER BY ft.fee_name SEPARATOR '\n') as total_paid, GROUP_CONCAT((IFNULL(sfa.amount, 0) + IFNULL(sfa.fine_calculated_amount, 0) - IFNULL(sfa.paid, 0)) ORDER BY ft.fee_name SEPARATOR '\n') as outstanding, GROUP_CONCAT(IFNULL(sfa.fine_calculated_amount, 0) ORDER BY ft.fee_name SEPARATOR '\n') as fine", false);
+        $finePaidSelect = '0 AS fine_paid';
+        if ($this->db->table_exists('fee_collect')) {
+            $fineCollectionQuery = 'SELECT fc.allocation_id, IFNULL(SUM(fc.fine), 0) AS fine_paid
+                FROM fee_collect fc';
+            if ($this->db->table_exists('fee_receipt_reversals')) {
+                $fineCollectionQuery .= ' WHERE NOT EXISTS (
+                    SELECT 1
+                    FROM fee_receipt_reversals fr
+                    WHERE fr.branch_id = fc.branch_id
+                    AND fr.receipt_no = fc.receipt_no
+                )';
+            }
+            $fineCollectionQuery .= ' GROUP BY fc.allocation_id';
+            $this->db->join(
+                '(' . $fineCollectionQuery . ') fee_collected_fines',
+                'fee_collected_fines.allocation_id = sfa.id',
+                'left',
+                false
+            );
+            $finePaidSelect = 'IFNULL(fee_collected_fines.fine_paid, 0) AS fine_paid';
+        }
+        $this->db->select(
+            's.id as student_id, s.register_no, s.first_name, s.last_name, p.mobileno as guardian_mobile,
+            e.roll as roll_no, c.name as class_name, se.name as section_name,
+            sfa.fee_type_id, ft.fee_name, sfa.amount, sfa.paid,
+            sfa.fine_calculated_amount, sfa.month, ' . $finePaidSelect,
+            false
+        );
         $this->db->from('student_fee_allocation sfa');
         $this->db->join('student s', 's.id = sfa.student_id', 'inner');
-        $this->db->join('enroll e', 'e.student_id = s.id AND e.class_id = sfa.class_id AND e.session_id = ' . $this->db->escape($sessionID), 'inner', false);
+        $this->db->join('enroll e', 'e.student_id = s.id AND e.class_id = sfa.class_id', 'inner');
         $this->db->join('class c', 'c.id = e.class_id', 'left');
         $this->db->join('section se', 'se.id = e.section_id', 'left');
+        $this->db->join('parent p', 'p.id = s.parent_id', 'left');
         $this->db->join('fees_type ft', 'ft.id = sfa.fee_type_id', 'left');
         $this->db->where('e.session_id', $sessionID);
         $this->db->where('s.active', 1);
-        // Outstanding: balance column, or computed amount+fine-paid
-        $this->db->where('(IFNULL(sfa.balance, 0) > 0 OR (IFNULL(sfa.amount, 0) + IFNULL(sfa.fine_calculated_amount, 0) - IFNULL(sfa.paid, 0)) > 0)', null, false);
+        $branchID = is_superadmin_loggedin()
+            ? ($filters['branch_id'] ?? '')
+            : get_loggedin_branch_id();
+        if (!empty($branchID)) {
+            $this->db->where('e.branch_id', $branchID);
+        }
         if (!empty($filters['class_id'])) {
             $this->db->where('e.class_id', $filters['class_id']);
         }
@@ -2419,50 +3499,100 @@ class Fees_model extends MY_Model
         if (!empty($filters['month'])) {
             $months = array();
             foreach ((array) $filters['month'] as $month) {
-                if ($month === '' || $month === null) {
-                    continue;
-                }
-                // DB stores months as 1..12 (no leading zero); form may send 01..12
-                $normalized = (int) $month;
-                if ($normalized >= 1 && $normalized <= 12) {
-                    $months[] = $normalized;
+                $month = (int) $month;
+                if ($month >= 1 && $month <= 12) {
+                    $months[] = $month;
                 }
             }
             $months = array_values(array_unique($months));
             if (!empty($months)) {
-                // Match allocation month (single or comma-separated) OR due_date month
                 $this->db->group_start();
-                foreach ($months as $i => $m) {
-                    $mEsc = $this->db->escape((string) $m);
-                    $mPad = $this->db->escape(str_pad((string) $m, 2, '0', STR_PAD_LEFT));
-                    $clause = "(sfa.month = {$mEsc} OR sfa.month = {$mPad} OR FIND_IN_SET({$mEsc}, REPLACE(sfa.month, ' ', '')) OR FIND_IN_SET({$mPad}, REPLACE(sfa.month, ' ', '')) OR MONTH(sfa.due_date) = {$m})";
-                    if ($i === 0) {
-                        $this->db->where($clause, null, false);
+                foreach ($months as $index => $month) {
+                    if ($index === 0) {
+                        $this->db->where("FIND_IN_SET(" . (int) $month . ", REPLACE(sfa.month, ' ', '')) >", 0, false);
                     } else {
-                        $this->db->or_where($clause, null, false);
+                        $this->db->or_where("FIND_IN_SET(" . (int) $month . ", REPLACE(sfa.month, ' ', '')) >", 0, false);
                     }
                 }
                 $this->db->group_end();
             }
         }
         if (!empty($filters['feeTypes'])) {
-            $feeTypes = array_filter((array) $filters['feeTypes']);
+            $feeTypes = array_values(array_filter(array_map('intval', (array) $filters['feeTypes'])));
             if (!empty($feeTypes)) {
                 $this->db->where_in('sfa.fee_type_id', $feeTypes);
             }
         }
-        $branchID = $this->application_model->get_branch_id();
-        if (!empty($branchID)) {
-            $this->db->where('e.branch_id', $branchID);
-        } elseif (!is_superadmin_loggedin()) {
-            $this->db->where('e.branch_id', get_loggedin_branch_id());
+        $rows = $this->db
+            ->order_by('s.first_name', 'asc')
+            ->order_by('s.last_name', 'asc')
+            ->order_by('ft.fee_name', 'asc')
+            ->order_by('sfa.month', 'asc')
+            ->get()
+            ->result_array();
+
+        $students = array();
+        foreach ($rows as $row) {
+            $studentID = (int) $row['student_id'];
+            if (!isset($students[$studentID])) {
+                $students[$studentID] = array(
+                    'student_id' => $studentID,
+                    'register_no' => $row['register_no'],
+                    'first_name' => $row['first_name'],
+                    'last_name' => $row['last_name'],
+                    'guardian_mobile' => $row['guardian_mobile'] ?? '',
+                    'roll_no' => $row['roll_no'],
+                    'class_name' => $row['class_name'],
+                    'section_name' => $row['section_name'],
+                    'fee_items' => array(),
+                    'total_fee' => 0,
+                    'total_paid' => 0,
+                    'fine_total' => 0,
+                    'outstanding_total' => 0,
+                );
+            }
+
+            $feeTypeID = (int) $row['fee_type_id'];
+            $feeName = trim((string) ($row['fee_name'] ?? 'Fee'));
+            $itemKey = $feeTypeID > 0 ? (string) $feeTypeID : $feeName;
+            if (!isset($students[$studentID]['fee_items'][$itemKey])) {
+                $students[$studentID]['fee_items'][$itemKey] = array(
+                    'name' => $feeName !== '' ? $feeName : 'Fee',
+                    'amount' => 0,
+                    'paid' => 0,
+                    'fine' => 0,
+                    'due' => 0,
+                );
+            }
+
+            $amount = max(0, (float) $row['amount']);
+            $paid = max(0, (float) $row['paid']);
+            $fine = max(0, (float) $row['fine_calculated_amount']);
+            $finePaid = max(0, (float) $row['fine_paid']);
+            $fineDue = max(0, $fine - $finePaid);
+            $due = max(0, $amount - $paid) + $fineDue;
+            $students[$studentID]['fee_items'][$itemKey]['amount'] += $amount;
+            $students[$studentID]['fee_items'][$itemKey]['paid'] += $paid;
+            $students[$studentID]['fee_items'][$itemKey]['fine'] += $fineDue;
+            $students[$studentID]['fee_items'][$itemKey]['due'] += $due;
+            $students[$studentID]['total_fee'] += $amount;
+            $students[$studentID]['total_paid'] += $paid;
+            $students[$studentID]['fine_total'] += $fineDue;
+            $students[$studentID]['outstanding_total'] += $due;
         }
-        $this->db->group_by('s.id');
-        $this->db->order_by('s.first_name', 'asc');
-        $rows = $this->db->get()->result_array();
+
+        $rows = array();
+        foreach ($students as $student) {
+            if ($student['outstanding_total'] <= 0) {
+                continue;
+            }
+            $student['fee_items'] = array_values($student['fee_items']);
+            $rows[] = $student;
+        }
+
         if (!empty($filters['min_due']) || !empty($filters['max_due'])) {
             $rows = array_values(array_filter($rows, function ($row) use ($filters) {
-                $due = array_sum(array_map('floatval', preg_split("/\n|,/", (string) $row['outstanding'])));
+                $due = (float) $row['outstanding_total'];
                 if (!empty($filters['min_due']) && $due < (float) $filters['min_due']) {
                     return false;
                 }

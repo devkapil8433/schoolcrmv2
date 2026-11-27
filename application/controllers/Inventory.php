@@ -591,7 +591,6 @@ class Inventory extends Admin_Controller
             $this->form_validation->set_rules('branch_id', translate('branch'), 'required');
         }
         $this->form_validation->set_rules('supplier_id', 'Supplier', 'trim|required');
-        $this->form_validation->set_rules('store_id', 'Store', 'trim|required');
         $this->form_validation->set_rules('bill_no', 'Bill No', 'trim|required');
         $this->form_validation->set_rules('purchase_status', 'Purchase Status', 'trim|required');
         $this->form_validation->set_rules('date', 'Date', 'trim|required');
@@ -614,7 +613,6 @@ class Inventory extends Admin_Controller
             if ($this->form_validation->run() == false) {
                 $msg = array(
                     'supplierID' => form_error('supplier_id'),
-                    'storeID' => form_error('store_id'),
                     'bill_no' => form_error('bill_no'),
                     'purchase_status' => form_error('purchase_status'),
                     'date' => form_error('date'),
@@ -671,7 +669,6 @@ class Inventory extends Admin_Controller
         if ($_POST) {
             // validate inputs
             $this->form_validation->set_rules('supplier_id', 'Supplier', 'trim|required');
-            $this->form_validation->set_rules('store_id', 'Store', 'trim|required');
             $this->form_validation->set_rules('bill_no', 'Bill No', 'trim|required');
             $this->form_validation->set_rules('purchase_status', 'Purchase Status', 'trim|required');
             $this->form_validation->set_rules('date', 'Date', 'trim|required');
@@ -683,7 +680,6 @@ class Inventory extends Admin_Controller
             if ($this->form_validation->run() == false) {
                 $msg = array(
                     'supplierID' => form_error('supplier_id'),
-                    'storeID' => form_error('store_id'),
                     'bill_no' => form_error('bill_no'),
                     'purchase_status' => form_error('purchase_status'),
                     'date' => form_error('date'),
@@ -699,7 +695,6 @@ class Inventory extends Admin_Controller
 
                 $purchase_bill_id = $this->input->post('purchase_bill_id');
                 $supplier_id = $this->input->post('supplier_id');
-                $store_id = $this->input->post('store_id');
                 $bill_no = $this->input->post('bill_no');
                 $purchase_status = $this->input->post('purchase_status');
                 $grand_total = $this->input->post('grand_total');
@@ -715,7 +710,7 @@ class Inventory extends Admin_Controller
                 }
                 $array_invoice = array(
                     'supplier_id' => $supplier_id,
-                    'store_id' => $store_id,
+                    'store_id' => null,
                     'bill_no' => $bill_no,
                     'remarks' => $remarks,
                     'total' => $grand_total,

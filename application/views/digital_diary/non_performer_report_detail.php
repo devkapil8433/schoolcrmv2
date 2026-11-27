@@ -5,8 +5,10 @@ $from_date = isset($from_date) ? $from_date : date('Y-m-d');
 $to_date = isset($to_date) ? $to_date : date('Y-m-d');
 $class_id = isset($class_id) ? (int) $class_id : 0;
 $subject_id = isset($subject_id) ? (int) $subject_id : 0;
+$scope_type = isset($scope_type) ? (string) $scope_type : '';
 $class_name = isset($class_name) ? $class_name : '';
 $subject_name = isset($subject_name) ? $subject_name : '';
+$subject_teacher_names = isset($subject_teacher_names) ? $subject_teacher_names : array();
 $np_detail_rows = isset($np_detail_rows) ? $np_detail_rows : array();
 $back_q = array('branch_id' => $branch_id, 'from' => $from_date, 'to' => $to_date);
 $back_url = base_url('digital_diary/non_performer_report') . '?' . http_build_query($back_q);
@@ -43,8 +45,12 @@ foreach ($np_detail_rows as $drChk) {
 					<h3 class="mt-none mb-xs">Non Performer — <?= html_escape($class_name !== '' ? $class_name : '—') ?> / <?= html_escape($subject_name !== '' ? $subject_name : '—') ?></h3>
 					<p class="mb-none">
 						<span class="label label-primary"><?= html_escape($fromDisp) ?><?= $from_date !== $to_date ? ' to ' . html_escape($toDisp) : '' ?></span>
+						<?php if ($scope_type === 'class_teacher'): ?><span class="label label-success">Class teacher · all subjects</span><?php elseif ($scope_type === 'assigned'): ?><span class="label label-info">My allocated subject</span><?php endif; ?>
 						<span class="label label-danger"><?= count($np_detail_rows) ?> student(s)</span>
 					</p>
+					<?php if (!empty($subject_teacher_names)): ?>
+					<p class="text-muted mt-sm mb-none"><strong>Subject teacher(s):</strong> <?= html_escape(implode(', ', $subject_teacher_names)) ?></p>
+					<?php endif; ?>
 				</div>
 
 				<div class="row">
@@ -83,23 +89,22 @@ foreach ($np_detail_rows as $drChk) {
 							<table class="table table-bordered table-condensed table-hover mb-none" id="np_detail_table">
 								<thead>
 									<tr>
-										<th class="text-center no-print" width="40">
-											<label class="mb-none"><input type="checkbox" id="np_chk_all" title="Select all"></label>
-										</th>
 										<th class="text-center">#</th>
 										<th>Adm number</th>
 										<th class="text-center">Roll No.</th>
 										<th class="text-left">Student's Name</th>
+										<th class="text-left">Section</th>
 										<th class="text-center">Fair Notebook</th>
 										<th class="text-center">Written Work</th>
 										<th class="text-center">Learning Work</th>
 										<th class="text-left">Remark</th>
+										<th class="text-center no-print">Parent</th>
 									</tr>
 								</thead>
 								<tbody>
 									<?php if (empty($np_detail_rows)): ?>
 									<tr>
-										<td colspan="9" class="text-center text-muted"><?= translate('no_information_available') ?></td>
+										<td colspan="10" class="text-center text-muted"><?= translate('no_information_available') ?></td>
 									</tr>
 									<?php else: ?>
 									<?php $adm = 1; foreach ($np_detail_rows as $dr):
@@ -107,26 +112,32 @@ foreach ($np_detail_rows as $drChk) {
 											? str_pad((string) (int) $dr['roll'], 2, '0', STR_PAD_LEFT)
 											: '—';
 										$admNo = !empty($dr['register_no']) ? $dr['register_no'] : (string) $adm;
-										$waLine = $dr['fullname'] . ' — Fair: ' . $dr['fair_notebook'] . ', Writing: ' . $dr['written_work'] . ', Learning: ' . $dr['learning_work'];
-										if (!empty($dr['remarks'])) {
-											$waLine .= ' (' . $dr['remarks'] . ')';
+										$parentMobile = preg_replace('/\D+/', '', (string) $dr['parent_mobile']);
+										if (strlen($parentMobile) === 11 && substr($parentMobile, 0, 1) === '0') {
+											$parentMobile = substr($parentMobile, 1);
 										}
+										if (strlen($parentMobile) === 10) {
+											$parentMobile = '91' . $parentMobile;
+										}
+										$waMessage = 'Namaste, this is ' . ($branch_name !== '' ? $branch_name : 'the school') . '. We would like to discuss ' . $dr['fullname'] . '\'s schoolwork in ' . $subject_name . ' for ' . $fromDisp . ($from_date !== $to_date ? ' to ' . $toDisp : '') . '. Please support the student in completing the pending work and contact the school if you need help.';
 									?>
 									<tr>
-										<td class="text-center no-print">
-											<input type="checkbox" class="np-row-chk" value="<?= (int) $dr['student_id'] ?>"
-												data-name="<?= html_escape($dr['fullname']) ?>"
-												data-mobile="<?= html_escape(isset($dr['mobile']) ? $dr['mobile'] : '') ?>"
-												data-line="<?= html_escape($waLine) ?>">
-										</td>
 										<td class="text-center"><?= (int) $adm ?></td>
 										<td><?= html_escape($admNo) ?></td>
 										<td class="text-center"><?= html_escape($rollDisp) ?></td>
 										<td class="text-left"><strong><?= html_escape($dr['fullname']) ?></strong></td>
+										<td><?= html_escape($dr['section_name'] !== '' ? $dr['section_name'] : '—') ?></td>
 										<td class="text-center"><span class="label <?= $statusLabel($dr['fair_notebook']) ?>"><?= html_escape($dr['fair_notebook']) ?></span></td>
 										<td class="text-center"><span class="label <?= $statusLabel($dr['written_work']) ?>"><?= html_escape($dr['written_work']) ?></span></td>
 										<td class="text-center"><span class="label <?= $statusLabel($dr['learning_work']) ?>"><?= html_escape($dr['learning_work']) ?></span></td>
 										<td class="text-left"><?= html_escape($dr['remarks'] !== '' ? $dr['remarks'] : '—') ?></td>
+										<td class="text-center no-print">
+											<?php if (strlen($parentMobile) >= 10 && strlen($parentMobile) <= 15): ?>
+											<a class="btn btn-success btn-xs" href="https://wa.me/<?= html_escape($parentMobile) ?>?text=<?= rawurlencode($waMessage) ?>" target="_blank" rel="noopener" title="Open a pre-filled message to this parent"><i class="fab fa-whatsapp"></i> WhatsApp</a>
+											<?php else: ?>
+											<button type="button" class="btn btn-default btn-xs" disabled title="Parent mobile number is not available"><i class="fab fa-whatsapp"></i> Unavailable</button>
+											<?php endif; ?>
+										</td>
 									</tr>
 									<?php $adm++; endforeach; ?>
 									<?php endif; ?>
@@ -137,8 +148,7 @@ foreach ($np_detail_rows as $drChk) {
 				</section>
 
 				<div class="well well-sm text-center no-print mb-none">
-					<strong>Share / Export</strong>
-					<button type="button" class="btn btn-success" id="npWaBtn"><i class="fab fa-whatsapp"></i> WhatsApp Selected</button>
+					<strong>Export</strong>
 					<button type="button" class="btn btn-success" onclick="npDetailExportExcel();"><i class="fas fa-file-excel"></i> Excel</button>
 				</div>
 			</div>
@@ -147,54 +157,6 @@ foreach ($np_detail_rows as $drChk) {
 </div>
 
 <script type="text/javascript">
-(function () {
-	var className = <?= json_encode((string) $class_name) ?>;
-	var subjectName = <?= json_encode((string) $subject_name) ?>;
-	var period = <?= json_encode($fromDisp . ($from_date !== $to_date ? ' to ' . $toDisp : '')) ?>;
-	var school = <?= json_encode((string) $branch_name) ?>;
-
-	$('#np_chk_all').on('change', function () {
-		$('.np-row-chk').prop('checked', this.checked);
-	});
-
-	$('#npWaBtn').on('click', function () {
-		var $checked = $('.np-row-chk:checked');
-		if (!$checked.length) {
-			if (typeof Swal !== 'undefined') {
-				Swal.fire({ icon: 'info', title: 'Select students', text: 'Please select one or more students.', confirmButtonText: 'OK' });
-			} else {
-				alert('Please select one or more students.');
-			}
-			return;
-		}
-		var lines = [];
-		lines.push(school || 'School');
-		lines.push('NON PERFORMER ALERT');
-		lines.push('Class: ' + className + ' · Subject: ' + subjectName);
-		lines.push('Period: ' + period);
-		lines.push('---');
-		var firstMobile = '';
-		$checked.each(function () {
-			var $el = $(this);
-			lines.push('• ' + ($el.data('line') || $el.data('name')));
-			if (!firstMobile && $el.data('mobile')) {
-				firstMobile = String($el.data('mobile')).replace(/\D+/g, '');
-			}
-		});
-		var text = lines.join('\n');
-		if (text.length > 3500) {
-			text = text.substring(0, 3400) + '\n…';
-		}
-		var url = 'https://wa.me/';
-		if (firstMobile) {
-			if (firstMobile.length === 10) firstMobile = '91' + firstMobile;
-			url += firstMobile;
-		}
-		url += '?text=' + encodeURIComponent(text);
-		window.open(url, '_blank');
-	});
-})();
-
 function npDetailExportExcel() {
 	var t = document.getElementById('np_detail_table');
 	if (!t) return;

@@ -9,9 +9,16 @@ $section_options = isset($section_options) ? $section_options : array('' => tran
 $subjects = isset($detail_subjects) ? $detail_subjects : array();
 $rows = isset($detail_rows) ? $detail_rows : array();
 $today_perf = isset($today_class_performance) ? $today_class_performance : '—';
+$teacher_scoped = !empty($teacher_scoped);
+$subject_id = isset($subject_id) ? (int) $subject_id : 0;
+$scope_type = isset($scope_type) ? $scope_type : '';
 $back_q = array();
 if (!empty($branch_id)) {
 	$back_q['branch_id'] = $branch_id;
+}
+$back_q['date'] = $to_date;
+if ($teacher_scoped) {
+	$back_q['mode'] = 'teacher';
 }
 $back_url = base_url('digital_diary/syllabus_report') . (!empty($back_q) ? '?' . http_build_query($back_q) : '');
 ?>
@@ -23,8 +30,13 @@ $back_url = base_url('digital_diary/syllabus_report') . (!empty($back_q) ? '?' .
 				<div class="row">
 					<div class="col-md-12 text-center">
 						<h3 class="mt-none mb-sm" style="font-weight:600;color:#c00;">
-							Syllabus Report of Class<?= $class_id ? ' - ' . html_escape(get_type_name_by_id('class', $class_id)) : '' ?>
+							Syllabus Report<?= $class_id ? ' - ' . html_escape(get_type_name_by_id('class', $class_id)) . ' / ' . html_escape(get_type_name_by_id('section', $section_id)) : '' ?>
 						</h3>
+						<?php if ($teacher_scoped && !empty($subjects)): ?>
+						<p class="text-muted mb-none">
+							<?= $scope_type === 'class_teacher' ? 'Class teacher view · all class subjects' : html_escape($subjects[0]['subject_name']) . ' · Subject teacher view' ?>
+						</p>
+						<?php endif; ?>
 					</div>
 				</div>
 				<div class="panel-btn">
@@ -33,8 +45,8 @@ $back_url = base_url('digital_diary/syllabus_report') . (!empty($back_q) ? '?' .
 			</header>
 			<div class="panel-body">
 				<?php echo form_open(base_url('digital_diary/syllabus_report_class_detail'), array('method' => 'get', 'class' => 'mb-md')); ?>
-				<?php if (is_superadmin_loggedin()): ?>
 				<div class="row mb-sm">
+				<?php if (is_superadmin_loggedin()): ?>
 					<div class="col-md-2">
 						<label class="control-label"><?= translate('branch') ?></label>
 						<?php
@@ -51,6 +63,13 @@ $back_url = base_url('digital_diary/syllabus_report') . (!empty($back_q) ? '?' .
 						<label class="control-label">To</label>
 						<input type="text" class="form-control" name="to" value="<?= html_escape($to_date) ?>" data-plugin-datepicker data-plugin-options='{"format":"yyyy-mm-dd"}'>
 					</div>
+					<?php if ($teacher_scoped): ?>
+					<input type="hidden" name="branch_id" value="<?= html_escape($branch_id) ?>">
+					<input type="hidden" name="class_id" value="<?= (int) $class_id ?>">
+					<input type="hidden" name="section_id" value="<?= (int) $section_id ?>">
+					<input type="hidden" name="subject_id" value="<?= (int) $subject_id ?>">
+					<input type="hidden" name="scope_type" value="<?= html_escape($scope_type) ?>">
+					<?php else: ?>
 					<div class="col-md-3">
 						<label class="control-label"><?= translate('class') ?></label>
 						<?= form_dropdown('class_id', $class_options, $class_id, "class='form-control' id='class_id' onchange='getSectionByClass(this.value,0)' data-plugin-selectTwo data-width=\"100%\"") ?>
@@ -59,6 +78,7 @@ $back_url = base_url('digital_diary/syllabus_report') . (!empty($back_q) ? '?' .
 						<label class="control-label"><?= translate('section') ?></label>
 						<?= form_dropdown('section_id', $section_options, $section_id, "class='form-control' id='section_id' data-plugin-selectTwo data-width=\"100%\"") ?>
 					</div>
+					<?php endif; ?>
 				</div>
 				<div class="row mb-sm">
 					<div class="col-md-12 text-right">
@@ -115,7 +135,7 @@ $back_url = base_url('digital_diary/syllabus_report') . (!empty($back_q) ? '?' .
 
 				<div class="row mt-md">
 					<div class="col-md-6">
-						<strong>Today Class Performance</strong>
+						<strong><?= $teacher_scoped ? 'Syllabus progress' : 'Today Class Performance' ?></strong>
 					</div>
 					<div class="col-md-3">
 						<span class="btn btn-success btn-block" style="font-weight:600;"><?= html_escape($today_perf) ?></span>
@@ -130,4 +150,3 @@ $back_url = base_url('digital_diary/syllabus_report') . (!empty($back_q) ? '?' .
 		</section>
 	</div>
 </div>
-

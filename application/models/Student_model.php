@@ -301,6 +301,13 @@ class Student_model extends MY_Model
     $this->db->select('COALESCE(SUM(IFNULL(paid_amount,0) + IFNULL(discount,0)), 0) AS totalpaid', false);
     $this->db->from('fee_collect');
     $this->db->where('student_id', $student_id);
+    if ($this->db->table_exists('fee_receipt_reversals')) {
+        $this->db->where(
+            'NOT EXISTS (SELECT 1 FROM fee_receipt_reversals fr WHERE fr.branch_id = fee_collect.branch_id AND fr.receipt_no = fee_collect.receipt_no)',
+            null,
+            false
+        );
+    }
     // If you want to limit by session in fee_collect, uncomment:
     // $this->db->where('session_id', get_session_id());
     $pay = $this->db->get()->row_array();
@@ -500,6 +507,7 @@ class Student_model extends MY_Model
         $classID = $this->input->post('class_id');
         $sectionID = $this->input->post('section_id');
         $sessionID = get_session_id();
+        $teacherReadOnly = is_teacher_loggedin();
 
         // system fields validation rules
         $validArr = array();
@@ -508,8 +516,10 @@ class Student_model extends MY_Model
             $validArr[$value->prefix] = (empty($value->status) ? 0 : 1);
         }
 
-        // getting a list of classes assigned to a teacher
-        $assigned_cs_list = $this->app_lib->get_ownClassSection();
+        // Student records are visible to a teacher only for class-teacher sections.
+        $assigned_cs_list = $teacherReadOnly
+            ? $this->app_lib->get_class_teacher_sections($branchID, $sessionID)
+            : $this->app_lib->get_ownClassSection();
 
         // custom fields data
         $i = 1;
@@ -537,7 +547,11 @@ class Student_model extends MY_Model
         $this->datatables->join('student_category', 'student_category.id = student.category_id', 'left');
         $this->datatables->join('parent', 'parent.id = student.parent_id', 'left');
         $this->datatables->search_value('student.register_no,student.first_name,student.last_name,student.gender,student_category.name,class.name,section.name,enroll.roll,parent.name' . $field_select);
-        $this->datatables->column_order('enroll.id,enroll.id,student.first_name,class.name,section.name,student.gender,student.mobileno,student.register_no,enroll.roll,student.birthday,parent.name' . $custom_fields_column_order);
+        $columnOrder = 'enroll.id,enroll.id,student.first_name,class.name,section.name,student.gender,student.mobileno,student.register_no,enroll.roll,student.birthday,parent.name';
+        if ($teacherReadOnly) {
+            $columnOrder = implode(',', array_slice(explode(',', $columnOrder), 1));
+        }
+        $this->datatables->column_order($columnOrder . $custom_fields_column_order);
         $this->datatables->order_by('enroll.id', 'desc');
         $this->datatables->where('student.active', 1);
         $this->datatables->where('enroll.session_id', $sessionID);
@@ -549,8 +563,9 @@ class Student_model extends MY_Model
             $this->datatables->where('enroll.section_id', $sectionID);
         }
 
-        // filter classes by teacher assigned classes
-        if ($assigned_cs_list != false && !empty($assigned_cs_list)) {
+        if ($teacherReadOnly && empty($assigned_cs_list)) {
+            $this->datatables->where('enroll.id', 0);
+        } elseif (!empty($assigned_cs_list)) {
             $this->datatables->group_start();
             foreach ($assigned_cs_list as $class_key => $class_value) {
                 foreach ($class_value as $section_key => $section_value) {
@@ -583,24 +598,28 @@ class Student_model extends MY_Model
             // photo
             $photo = "<img src='" . get_image_url('student', $record->photo) . "' height='50'>";
 
-            // actions btn
-            $actions = '<button class="btn btn-circle icon btn-default" data-toggle="tooltip" data-original-title="' . translate('quick_view') . '" data-loading-text="<i class=\'fas fa-spinner fa-spin\'></i>" onclick="studentQuickView(' . "'" . $record->id . "'" . ', this)"><i class="fas fa-qrcode"></i></button>';
-            if (get_permission('student', 'is_edit')) {
-                $actions .= '<a href="' . base_url('student/profile/') . $record->id . '" class="btn btn-circle btn-default icon" data-toggle="tooltip" data-original-title="' . translate('details') . '"> <i class="far fa-arrow-alt-circle-right"></i></a>';
-            }
-            if (!is_student_loggedin() && !is_parent_loggedin()) {
-                $actions .= '<a href="' . base_url('student/login_as_student/' . $record->id) . '" class="btn btn-circle btn-default icon" data-toggle="tooltip" data-original-title="' . translate('login_as_student') . '"><i class="fas fa-sign-in-alt"></i></a>';
-            }
-            if (get_permission('student', 'is_delete')) {
-                $actions .= btn_delete('student/delete_data/' . $record->id . '/' . $record->student_id);
+            $actions = '';
+            if (!$teacherReadOnly) {
+                $actions = '<button class="btn btn-circle icon btn-default" data-toggle="tooltip" data-original-title="' . translate('quick_view') . '" data-loading-text="<i class=\'fas fa-spinner fa-spin\'></i>" onclick="studentQuickView(' . "'" . $record->id . "'" . ', this)"><i class="fas fa-qrcode"></i></button>';
+                if (get_permission('student', 'is_edit')) {
+                    $actions .= '<a href="' . base_url('student/profile/') . $record->id . '" class="btn btn-circle btn-default icon" data-toggle="tooltip" data-original-title="' . translate('details') . '"> <i class="far fa-arrow-alt-circle-right"></i></a>';
+                }
+                if (!is_student_loggedin() && !is_parent_loggedin()) {
+                    $actions .= '<a href="' . base_url('student/login_as_student/' . $record->id) . '" class="btn btn-circle btn-default icon" data-toggle="tooltip" data-original-title="' . translate('login_as_student') . '"><i class="fas fa-sign-in-alt"></i></a>';
+                }
+                if (get_permission('student', 'is_delete')) {
+                    $actions .= btn_delete('student/delete_data/' . $record->id . '/' . $record->student_id);
+                }
             }
             // dt-data array 
             $row   = array();
-            $row[] = "<div class='checked-area'><div class='checkbox-replace'>
+            if (!$teacherReadOnly) {
+                $row[] = "<div class='checked-area'><div class='checkbox-replace'>
                             <label class='i-checks'>
                                 <input type='checkbox' class='cb_bulkdelete' id='" . $record->student_id . "'><i></i>
                             </label>
                         </div></div>";
+            }
             if ($validArr['student_photo']) {
                 $row[] = $photo;
             }
@@ -633,7 +652,9 @@ class Student_model extends MY_Model
             $row[] = '<div class="progress progress-xl m-none prb-mw">
                         <div class="progress-bar text-dark" role="progressbar" aria-valuenow="60" aria-valuemin="0" aria-valuemax="100" style="width: ' . $fee_progress . '%;">' . $fee_progress . '%</div>
                     </div>';
-            $row[] = $actions;
+            if (!$teacherReadOnly) {
+                $row[] = $actions;
+            }
             $data[] = $row;
         }
         $json_data = array(

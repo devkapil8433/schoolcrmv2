@@ -284,8 +284,16 @@ class fees_structure extends Admin_Controller
         if (!get_permission('fees_register', 'is_view')) {
             access_denied();
         }
-        $branchID = $this->input->post('branch_id');
+        $branchID = $this->application_model->get_branch_id();
         if (empty($branchID) && !is_superadmin_loggedin()) {
+            $branchID = get_loggedin_branch_id();
+        }
+        if (is_superadmin_loggedin()) {
+            $requestedBranchID = $this->input->post('branch_id') ?: $this->input->get('branch_id');
+            if (!empty($requestedBranchID)) {
+                $branchID = $requestedBranchID;
+            }
+        } else {
             $branchID = get_loggedin_branch_id();
         }
         $this->data['headerelements'] = array(
@@ -295,7 +303,6 @@ class fees_structure extends Admin_Controller
             ),
             'js' => array(
                 'vendor/bootstrap-fileupload/bootstrap-fileupload.min.js',
-                'vendor/chartjs/chart.min.js',
             ),
         );
         $this->data['branch_id'] = $branchID;
@@ -310,13 +317,10 @@ class fees_structure extends Admin_Controller
         if (!get_permission('fees_defaulter', 'is_view')) {
             access_denied();
         }
-        $branchID = $this->application_model->get_branch_id();
-        if ($this->input->post('branch_id')) {
-            $branchID = $this->input->post('branch_id');
-        }
-        if (empty($branchID) && !is_superadmin_loggedin()) {
-            $branchID = get_loggedin_branch_id();
-        }
+        $branchID = is_superadmin_loggedin()
+            ? ($this->input->post('branch_id') ?: $this->input->get('branch_id'))
+            : get_loggedin_branch_id();
+        $branchID = $branchID ?: $this->application_model->get_branch_id();
         $this->data['headerelements'] = array(
             'css' => array(
                 'vendor/bootstrap-fileupload/bootstrap-fileupload.min.css',
@@ -328,11 +332,13 @@ class fees_structure extends Admin_Controller
         );
         $this->load->model('classes_model');
         $this->load->model('section_model');
+        $this->load->model('fees_model');
         $this->data['branch_id'] = $branchID;
 
         // $this->data['result'] = $this->app_lib->getTable('offline_fees_payments');
         $this->data['classes'] = $this->classes_model->get_all_classes();
         $this->data['sections'] = $this->section_model->get_all_sections();
+        $this->data['feeTypes'] = $this->fees_model->get_used_fee_types($branchID);
         $this->data['title'] = translate('Fees Defaulters');
         $this->data['sub_page'] = 'fees_structure/fees_defaulter';
         $this->data['main_menu'] = 'fees_structure';
@@ -368,16 +374,10 @@ class fees_structure extends Admin_Controller
     }
     public function fees_last()
     {
-        if (!get_permission('fees_last', 'is_view') && !get_permission('fees_register', 'is_view')) {
+        if (!get_permission('fees_register', 'is_view')) {
             access_denied();
         }
-        $branchID = $this->application_model->get_branch_id();
-        if ($this->input->post('branch_id')) {
-            $branchID = $this->input->post('branch_id');
-        }
-        if (empty($branchID) && !is_superadmin_loggedin()) {
-            $branchID = get_loggedin_branch_id();
-        }
+        $branchID = $this->input->post('branch_id');
         $this->data['headerelements'] = array(
             'css' => array(
                 'vendor/bootstrap-fileupload/bootstrap-fileupload.min.css',
@@ -455,6 +455,11 @@ class fees_structure extends Admin_Controller
         }
 
         $branchID = $this->application_model->get_branch_id();
+        if (is_superadmin_loggedin()) {
+            $branchID = $this->input->post('branch_id') ?: $this->input->get('branch_id') ?: $branchID;
+        } else {
+            $branchID = get_loggedin_branch_id();
+        }
 
         // Handle POST filter (optional — no JSON output)
         if ($_POST) {
@@ -488,19 +493,25 @@ class fees_structure extends Admin_Controller
     }
     public function getStudentFeesCardTable()
     {
-        $enroll_id = $this->input->post('enroll_id');
+        if (!get_permission('invoice', 'is_view')) {
+            access_denied();
+        }
+        $enroll_id = (int) $this->input->post('enroll_id');
+        $requestedBranchID = (int) $this->input->post('branch_id');
 
         if (!$enroll_id) {
-            echo '<div class="alert alert-danger">Invalid Student</div>';
+            show_error('Invalid student.', 400);
             return;
         }
 
         $basic = $this->fees_model->getInvoiceBasic($enroll_id);
-        if (empty($basic)) {
-            echo '<div class="alert alert-danger">No fee data found</div>';
+        $allowedBranchID = is_superadmin_loggedin() ? $requestedBranchID : (int) get_loggedin_branch_id();
+        if (empty($basic) || $allowedBranchID < 1 || (int) $basic['branch_id'] !== $allowedBranchID) {
+            show_error('Student fee card not found for the selected branch.', 404);
             return;
         }
 
+        $this->fees_model->allocateFeesForStudent($basic['id'], $basic['class_id'], $basic['branch_id']);
         $allocations = $this->fees_model->getStudentFeeDetails($enroll_id);
         $transport_fees = moduleIsEnabled('transport')
             ? $this->fees_model->getStudentTransportFees($enroll_id, $basic['stoppage_point_id'])
@@ -508,48 +519,33 @@ class fees_structure extends Admin_Controller
 
         $salesBills = $this->fees_model->getStudentSalesBills($basic['id'] ?? null);
         $monthlyCollections = $this->fees_model->getStudentMonthlyCollections($basic['id'] ?? null);
+        $openingBalance = $this->fees_model->getStudentLastBalanceForEnroll($enroll_id);
+        $formatFeeCardAmount = function ($amount) {
+            return number_format((float) $amount, 2, '.', ',');
+        };
 
         /* ================== OUTPUT START ================== */?>
 
-        <div class="bill-info">
-            <div style="display: flex; justify-content: space-between; align-items: flex-start; width: 100%; margin-bottom:10px;">
-                <div style="flex: 1; margin-right: 20px;">
-                    <!-- Your original table code here -->
-                    <table class="table table-bordered table-up" style="width:100%; font-size: 15px;">
-                        <tbody>
-                            <!-- <tr>
-												<td><strong>Date :</strong> <?= date('d-m-Y') ?></td>
-												<td><strong>Rec No :</strong> <?= $basic['invoice_no'] ?? '' ?></td>
-											</tr> -->
-                            <tr>
-                                <td><strong>Name :</strong> <?= $basic['first_name'] . ' ' . $basic['last_name'] ?></td>
-                                <td><strong>Class :</strong> <?= $basic['class_name'] . " (" . $basic['section_name'] . ")" ?></td>
-                            </tr>
-                            <tr>
-                                <td><strong>Father’s Name :</strong> <?= $basic['father_name'] ?? '' ?></td>
-                                <td><strong>Registration No :</strong> <?= $basic['register_no'] ?></td>
-                            </tr>
-                            <tr>
-                                <td><strong>Category :</strong> <?= $basic['category'] ?? '' ?></td>
-                                <td><strong>Roll No :</strong> <?= $basic['roll'] ?? '' ?></td>
-                            </tr>
-                            <tr>
-                                <td><strong>Mobile :</strong> <?= $basic['mobileno'] ?? '' ?></td>
-                            </tr>
-                        </tbody>
-                    </table>
-                </div>
-                <div style="width: 170px; text-align: center;">
-                    <?php if (!empty($basic['photo'])): ?>
-                        <img src="<?= base_url('uploads/images/student/' . $basic['photo']); ?>" style="width:190px; height:190px; border:1px solid #000; padding:3px;">
-                    <?php else: ?>
-                        <div style="width:190px; height:190px; border:1px solid #000; display:flex; align-items:center; justify-content:center;">
-                            <span>No Photo</span>
-                        </div>
-                    <?php endif; ?>
+        <div class="fees-card-view">
+        <div class="fees-card-student">
+            <div class="fees-card-student__photo">
+                <?php if (!empty($basic['photo'])): ?>
+                    <img src="<?= base_url('uploads/images/student/' . rawurlencode($basic['photo'])); ?>" alt="<?= html_escape($basic['first_name'] . ' ' . $basic['last_name']); ?>">
+                <?php else: ?>
+                    <span class="fas fa-user-graduate" aria-hidden="true"></span>
+                <?php endif; ?>
+            </div>
+            <div class="fees-card-student__details">
+                <h3><?= html_escape($basic['first_name'] . ' ' . $basic['last_name']) ?></h3>
+                <div class="fees-card-student__class"><?= html_escape($basic['class_name'] . ' (' . $basic['section_name'] . ')') ?></div>
+                <div class="fees-card-student__meta">
+                    <span><b>Father</b><?= html_escape($basic['father_name'] ?? '-') ?></span>
+                    <span><b>Registration No.</b><?= html_escape($basic['register_no'] ?? '-') ?></span>
+                    <span><b>Roll No.</b><?= html_escape($basic['roll'] ?? '-') ?></span>
+                    <span><b>Category</b><?= html_escape($basic['category'] ?? '-') ?></span>
+                    <span><b>Mobile</b><?= html_escape($basic['mobileno'] ?? '-') ?></span>
                 </div>
             </div>
-
         </div>
         <div class="table-responsive br-none">
             <table class="table invoice-items table-hover mb-none table-bordered fees-card-table">
@@ -597,6 +593,7 @@ class fees_structure extends Admin_Controller
                     $g_fees = $g_material = $g_transport = $g_exam = 0;
                     $g_lastBal = $g_total = $g_paid = $g_balance = 0;
                     $currentMonth = (int) date('n');
+                    $carryBalance = $openingBalance;
                     $academicIndex = function ($monthNum) {
                         return $monthNum >= 4 ? $monthNum - 4 : $monthNum + 8;
                     };
@@ -608,12 +605,8 @@ class fees_structure extends Admin_Controller
                         $receiptNos = [];
                         $isFutureMonth = $academicIndex((int) $monthNo) > $academicIndex($currentMonth);
 
-                        /* ===== LAST YEAR BALANCE (APRIL ONLY) ===== */
-                        if ($monthNo == 4 && !empty($allocations[0]['previous_last_balance'])) {
-                            $lastBal = (float) $allocations[0]['previous_last_balance'];
-                            $total  += $lastBal;
-                            $balance += $lastBal;
-                        }
+                        $lastBal = $carryBalance;
+                        $monthBalance = 0;
 
                         /* ===== ASSIGNED FEES ===== */
                         foreach ($allocations as $row) {
@@ -632,7 +625,7 @@ class fees_structure extends Admin_Controller
                             }
 
                             $total   += $amount;
-                            $balance += $bal;
+                            $monthBalance += $bal;
                         }
 
                         /* ===== TRANSPORT ===== */
@@ -646,7 +639,7 @@ class fees_structure extends Admin_Controller
                                 }
                                 $transport += $tfAmount;
                                 $total     += $tfAmount;
-                                $balance   += max(0, $tfAmount - $tfPaid);
+                                $monthBalance += max(0, $tfAmount - $tfPaid);
                             }
                         }
 
@@ -655,7 +648,7 @@ class fees_structure extends Admin_Controller
                             if ((int) date('n', strtotime($bill->date)) === (int) $monthNo) {
                                 $material += (float) $bill->total;
                                 $total    += (float) $bill->total;
-                                $balance  += (float) $bill->due;
+                                $monthBalance += max(0, (float) $bill->due);
                             }
                         }
 
@@ -676,25 +669,31 @@ class fees_structure extends Admin_Controller
                         }
                         $receiptNos = array_values(array_unique(array_filter($receiptNos)));
 
+                        $total += $lastBal;
+                        $balance = $lastBal + $monthBalance;
+                        $carryBalance = $balance;
+
                         $g_fees      += $fees;
                         $g_material  += $material;
                         $g_transport += $transport;
                         $g_exam      += $exam;
-                        $g_lastBal   += $lastBal;
-                        $g_total     += $total;
+                        if ((int) $monthNo === 4) {
+                            $g_lastBal = $lastBal;
+                        }
+                        $g_total     += $fees + $material + $transport + $exam;
                         $g_paid      += $paid;
-                        $g_balance   += $balance;
+                        $g_balance = $balance;
                     ?>
-                        <tr<?= $isFutureMonth ? ' class="month-blurred"' : '' ?>>
+                        <tr class="fees-card-month<?= $isFutureMonth ? ' month-blurred' : '' ?>">
                             <td class="hidden-print"></td>
                             <td><strong><?= $monthName ?></strong></td>
-                            <td><?= $fees ?: '-' ?></td>
-                            <td><?= $material ?: '-' ?></td>
-                            <td><?= $transport ?: '-' ?></td>
-                            <td><?= $exam ?: '-' ?></td>
-                            <td><?= $lastBal ?: '-' ?></td>
-                            <td><strong><?= $total ?: '-' ?></strong></td>
-                            <td><?= $paid ?: '-' ?></td>
+                            <td><?= $fees ? $formatFeeCardAmount($fees) : '-' ?></td>
+                            <td><?= $material ? $formatFeeCardAmount($material) : '-' ?></td>
+                            <td><?= $transport ? $formatFeeCardAmount($transport) : '-' ?></td>
+                            <td><?= $exam ? $formatFeeCardAmount($exam) : '-' ?></td>
+                            <td><?= $lastBal ? '<span class="fees-card-carry">' . html_escape($formatFeeCardAmount($lastBal)) . '</span>' : '-' ?></td>
+                            <td><strong class="fees-card-total"><?= $total ? $formatFeeCardAmount($total) : '-' ?></strong></td>
+                            <td><?= $paid ? '<span class="fees-card-paid">' . html_escape($formatFeeCardAmount($paid)) . '</span>' : '-' ?></td>
                             <td>
                                 <?php if (empty($receiptNos)): ?>
                                     -
@@ -713,26 +712,27 @@ class fees_structure extends Admin_Controller
                                     <a href="javascript:void(0)" class="toggle-receipts" data-more="<?= $extraCount ?>">Show more (<?= $extraCount ?>)</a>
                                 <?php endif; ?>
                             </td>
-                            <td><strong><?= $balance ?: '-' ?></strong></td>
+                            <td><strong class="fees-card-balance<?= $balance > 0 ? ' is-due' : ' is-clear' ?>"><?= $balance ? $formatFeeCardAmount($balance) : '-' ?></strong></td>
                         </tr>
                     <?php endforeach; ?>
-                    <tr style="background:#f5f7fa; font-size:16px; font-weight:700; border-top:3px solid #333;">
+                    <tr class="fees-card-grand-total">
                         <td class="hidden-print"></td>
                         <td><strong>GRAND TOTAL</strong></td>
-                        <td><?= $g_fees ?: '-' ?></td>
-                        <td><?= $g_material ?: '-' ?></td>
-                        <td><?= $g_transport ?: '-' ?></td>
-                        <td><?= $g_exam ?: '-' ?></td>
-                        <td><?= $g_lastBal ?: '-' ?></td>
-                        <td><strong><?= $g_total ?: '-' ?></strong></td>
-                        <td><?= $g_paid ?: '-' ?></td>
+                        <td><?= $g_fees ? $formatFeeCardAmount($g_fees) : '-' ?></td>
+                        <td><?= $g_material ? $formatFeeCardAmount($g_material) : '-' ?></td>
+                        <td><?= $g_transport ? $formatFeeCardAmount($g_transport) : '-' ?></td>
+                        <td><?= $g_exam ? $formatFeeCardAmount($g_exam) : '-' ?></td>
+                        <td><?= $g_lastBal ? $formatFeeCardAmount($g_lastBal) : '-' ?></td>
+                        <td><strong><?= ($g_total + $g_lastBal) ? $formatFeeCardAmount($g_total + $g_lastBal) : '-' ?></strong></td>
+                        <td><?= $g_paid ? $formatFeeCardAmount($g_paid) : '-' ?></td>
                         <td>-</td>
-                        <td><strong><?= $g_balance ?: '-' ?></strong></td>
+                        <td><strong><?= $g_balance ? $formatFeeCardAmount($g_balance) : '-' ?></strong></td>
                     </tr>
                 </tbody>
 
 
             </table>
+        </div>
         </div>
 
      <?php
@@ -747,14 +747,25 @@ class fees_structure extends Admin_Controller
         $this->load->model('classes_model');
         $this->load->model('fees_model');
 
+        $branchID = $this->application_model->get_branch_id();
+        if (is_superadmin_loggedin()) {
+            $requestedBranchID = $this->input->post('branch_id') ?: $this->input->get('branch_id');
+            if (!empty($requestedBranchID)) {
+                $branchID = $requestedBranchID;
+            }
+        } else {
+            $branchID = get_loggedin_branch_id();
+        }
         $this->data['classes'] = $this->classes_model->get_all_classes();
-        $this->data['fee_types']     = $this->fees_model->get_used_fee_types();
-        $this->data['fee_structure'] = $this->fees_model->get_class_wise_fee_structure();
-        $this->data['transportFees'] = $this->fees_model->get_class_wise_transport_fee();
-        $this->data['sets'] = $this->Inventory_model->get_all_sets(); // id, set_name
-        $this->data['classSetTotals'] = $this->fees_model->get_class_wise_set_totals();
-        $this->data['setProducts']   = $this->Inventory_model->get_set_products_grouped();
-        $branchID = $this->input->post('branch_id');
+        $this->data['fee_types'] = array_values(array_filter(
+            $this->fees_model->get_used_fee_types($branchID),
+            function ($feeType) {
+                return !preg_match('/^class\s*-?\s*1$/i', trim($feeType['fee_name']));
+            }
+        ));
+        $this->data['fee_structure_details'] = $this->fees_model->get_class_wise_fee_structure_details($branchID);
+        $this->data['transportFees'] = $this->fees_model->get_class_wise_transport_fee($branchID);
+        $this->data['classMaterialSetAmounts'] = $this->fees_model->get_class_wise_material_set_amounts($branchID);
         $this->data['branch_id'] = $branchID;
 
 
@@ -772,23 +783,28 @@ class fees_structure extends Admin_Controller
         }
 
         $this->load->model('fees_model');
-        $this->load->model('student_model');
-        $this->load->model('Inventory_model');
 
-        $this->data['fee_types'] = $this->fees_model->get_used_fee_types();
-        $this->data['fee_structure'] = $this->fees_model->get_class_wise_fee_structure();
-        $this->data['transportFees'] = $this->fees_model->get_class_wise_transport_fee();
-        $this->data['students'] = $this->fees_model->get_students_by_class($class_id);
-
-        $sets = $this->Inventory_model->get_all_sets();
-        $groupedSets = [];
-        foreach ($sets as $set) {
-            $groupedSets[$set['set_name']][] = $set;
+        if (is_superadmin_loggedin()) {
+            $branchID = $this->input->get('branch_id');
+            if (empty($branchID)) {
+                $branchID = $this->application_model->get_branch_id();
+            }
+        } else {
+            $branchID = get_loggedin_branch_id();
         }
+        $sessionID = get_session_id();
 
-        $this->data['groupedSets'] = $groupedSets;
-        $this->data['classSetTotals'] = $this->fees_model->get_class_wise_set_totals();
-        $this->data['setProducts'] = $this->Inventory_model->get_set_products_grouped();
+        $this->data['fee_types'] = array_values(array_filter(
+            $this->fees_model->get_used_fee_types($branchID),
+            function ($feeType) {
+                return !preg_match('/^class\s*-?\s*1$/i', trim($feeType['fee_name']));
+            }
+        ));
+        $this->data['fee_structure'] = $this->fees_model->get_class_wise_fee_structure($branchID);
+        $this->data['transportFees'] = $this->fees_model->get_class_wise_transport_fee($branchID);
+        $this->data['students'] = $this->fees_model->get_students_by_class($class_id, $branchID);
+        $this->data['student_material_totals'] = $this->fees_model->get_student_wise_material_totals($class_id, $sessionID, $branchID);
+        $this->data['branch_id'] = $branchID;
 
         $this->data['title'] = 'Class Wise Student Fees';
         $this->data['sub_page'] = 'fees_structure/class_students';
@@ -807,21 +823,27 @@ class fees_structure extends Admin_Controller
         $this->load->model('fees_model');
 
         $branchID = $this->application_model->get_branch_id();
-        if ($this->input->post('branch_id')) {
-            $branchID = $this->input->post('branch_id');
+        if (is_superadmin_loggedin()) {
+            $requestedBranchID = $this->input->post('branch_id') ?: $this->input->get('branch_id');
+            if (!empty($requestedBranchID)) {
+                $branchID = $requestedBranchID;
+            }
+        } else {
+            $branchID = get_loggedin_branch_id();
         }
         $session_id = get_session_id();
 
         $this->data['classes'] = $this->classes_model->get_all_classes();
-        $this->data['fee_types'] = $this->fees_model->get_used_fee_types();
-        // Class-wise SUM of remaining balances per fee type (not catalog rates)
+        $this->data['fee_types'] = $this->fees_model->get_used_fee_types($branchID);
+        // Report assigned fee amounts, independent of collections already received.
         $this->data['fee_structure'] = $this->fees_model->get_class_wise_fee_type_balances($session_id, $branchID);
         $this->data['class_received'] = $this->fees_model->get_class_wise_received_amount($session_id, $branchID);
         $this->data['class_assigned'] = $this->fees_model->get_class_wise_assigned_amount($session_id, $branchID);
-        $this->data['transportFees'] = $this->fees_model->get_class_wise_transport_balances($session_id, $branchID);
-        $this->data['classSetAmounts'] = $this->fees_model->get_class_wise_set_amounts();
-        $this->data['sets'] = $this->Inventory_model->get_all_sets();
+        $this->data['transportTotals'] = $this->fees_model->get_class_wise_transport_totals($session_id, $branchID);
+        $this->data['materialTotals'] = $this->fees_model->get_class_wise_material_totals($session_id, $branchID);
+        $this->data['feePerformance'] = $this->fees_model->get_fee_monthly_performance($session_id, $branchID);
         $this->data['class_last_balance'] = $this->fees_model->get_class_wise_last_balance($session_id, $branchID);
+        $this->data['class_last_balance_received'] = $this->fees_model->get_class_wise_last_balance_received($session_id, $branchID);
         $this->data['branch_id'] = $branchID;
 
         $this->data['title'] = 'Fee Estimation Report';
@@ -846,9 +868,13 @@ class fees_structure extends Admin_Controller
         $this->load->model('classes_model');
         $this->load->model('fees_model');
 
-        $branchID = $this->input->get('branch_id');
-        if (empty($branchID)) {
-            $branchID = $this->application_model->get_branch_id();
+        if (is_superadmin_loggedin()) {
+            $branchID = $this->input->get('branch_id');
+            if (empty($branchID)) {
+                $branchID = $this->application_model->get_branch_id();
+            }
+        } else {
+            $branchID = get_loggedin_branch_id();
         }
         $session_id = get_session_id();
 
@@ -859,15 +885,26 @@ class fees_structure extends Admin_Controller
         }
 
         $this->data['class'] = $class;
-        $this->data['students'] = $this->fees_model->get_students_by_class($class_id, $branchID);
-        $this->data['fee_types'] = $this->fees_model->get_used_fee_types();
+        $students = $this->fees_model->get_students_by_class($class_id, $branchID);
+        $studentsById = array();
+        foreach ($students as $student) {
+            $studentsById[$student['id']] = $student;
+        }
+        foreach ($this->fees_model->get_material_sales_students_by_class($class_id, $session_id, $branchID) as $student) {
+            $studentsById[$student['id']] = $student;
+        }
+        $this->data['students'] = array_values($studentsById);
+        $this->data['fee_types'] = $this->fees_model->get_used_fee_types($branchID);
         $this->data['fee_structure'] = $this->fees_model->get_student_wise_fee_type_balances($class_id, $session_id, $branchID);
         $this->data['student_received'] = $this->fees_model->get_student_wise_received_amount($class_id, $session_id, $branchID);
         $this->data['student_assigned'] = $this->fees_model->get_student_wise_assigned_amount($class_id, $session_id, $branchID);
-        $this->data['transportFees'] = $this->fees_model->get_student_wise_transport_balances($class_id, $session_id, $branchID);
-        $this->data['studentSetAmounts'] = array();
-        $this->data['sets'] = $this->Inventory_model->get_all_sets();
+        $this->data['transportTotals'] = $this->fees_model->get_student_wise_transport_totals($class_id, $session_id, $branchID);
+        $this->data['materialTotals'] = $this->fees_model->get_student_wise_material_totals($class_id, $session_id, $branchID);
+        $this->data['feePerformance'] = $this->fees_model->get_fee_monthly_performance($session_id, $branchID, $class_id);
         $this->data['student_last_balance'] = $this->fees_model->get_student_wise_last_balance($class_id, $session_id, $branchID);
+        $this->data['student_last_balance_received'] = $this->fees_model->get_student_wise_last_balance_received($class_id, $session_id, $branchID);
+        $this->data['student_transport_totals'] = $this->data['transportTotals'];
+        $this->data['student_material_totals'] = $this->data['materialTotals'];
         $this->data['branch_id'] = $branchID;
 
         $this->data['title'] = 'Fee Estimation - ' . $class['name'];

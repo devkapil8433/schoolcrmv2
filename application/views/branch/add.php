@@ -55,8 +55,8 @@
 									<a href="<?=base_url('branch/edit/'.$row->id)?>" class="btn btn-default btn-circle icon">
 										<i class="fas fa-pen-nib"></i>
 									</a>
-									<!-- delete link -->
-									<?php echo btn_delete('branch/delete_data/' . $row->id);?>
+									<!-- branches are deactivated (not deleted) from Branch Management -->
+									<a href="<?=base_url('branch_manager')?>" class="btn btn-default btn-circle icon" data-toggle="tooltip" data-original-title="<?php echo translate('branch_management'); ?>"><i class="fas fa-toggle-on"></i></a>
 								</td>
 							</tr>
 							<?php endforeach; ?>

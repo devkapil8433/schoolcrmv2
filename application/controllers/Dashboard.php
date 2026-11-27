@@ -12,7 +12,23 @@ class Dashboard extends Admin_Controller
 
     public function index()
     {
-        if (is_student_loggedin() || is_parent_loggedin()) {
+        if (is_teacher_loggedin()) {
+            $staffID = (int) get_loggedin_user_id();
+            $schoolID = (int) get_loggedin_branch_id();
+            $this->data['title'] = translate('dashboard');
+            $this->data['school_id'] = $schoolID;
+            $this->data['teacher_name'] = get_type_name_by_id('staff', $staffID);
+            $this->data['teacher_dashboard'] = $this->dashboard_model->getTeacherDashboardData($staffID, $schoolID);
+            $this->data['complaint_module_enabled'] = moduleIsEnabled('reception') && $this->db->table_exists('complaint');
+            $this->data['complaint_types'] = array();
+            $this->data['complaint_recipients'] = array();
+            if ($this->data['complaint_module_enabled'] && $schoolID > 0) {
+                $this->data['complaint_types'] = $this->app_lib->getSelectByBranch('complaint_type', $schoolID);
+                $this->data['complaint_recipients'] = $this->app_lib->getStaffList($schoolID);
+                unset($this->data['complaint_recipients'][$staffID]);
+            }
+            $this->data['sub_page'] = 'dashboard/teacher';
+        } elseif (is_student_loggedin() || is_parent_loggedin()) {
             $studentID = 0;
             if (is_student_loggedin()) {
                 $this->data['title'] = translate('welcome_to') . " " . $this->session->userdata('name');
@@ -83,5 +99,60 @@ class Dashboard extends Admin_Controller
         $this->data['language'] = $language;
         $this->data['main_menu'] = 'dashboard';
         $this->load->view('layout/index', $this->data);
+    }
+
+    public function submit_teacher_complaint()
+    {
+        if (!is_teacher_loggedin() || !moduleIsEnabled('reception') || !$this->db->table_exists('complaint')) {
+            access_denied();
+        }
+
+        $staffID = (int) get_loggedin_user_id();
+        $branchID = (int) get_loggedin_branch_id();
+        $this->form_validation->set_rules('type_id', translate('complaint') . ' ' . translate('type'), 'trim|required|integer');
+        $this->form_validation->set_rules('staff_id', translate('assign_to'), 'trim|required|integer');
+        $this->form_validation->set_rules('subject', 'Subject', 'trim|required|max_length[120]');
+        $this->form_validation->set_rules('note', translate('note'), 'trim|required|max_length[1000]');
+
+        if ($branchID < 1 || $this->form_validation->run() === false) {
+            set_alert('error', 'Please select a complaint type and recipient, and enter a subject and description.');
+            redirect(base_url('dashboard'));
+        }
+
+        $typeID = (int) $this->input->post('type_id');
+        $recipientID = (int) $this->input->post('staff_id');
+        $category = $this->db->get_where('complaint_type', array(
+            'id' => $typeID,
+            'branch_id' => $branchID,
+        ), 1)->row_array();
+        $recipient = $this->db->select('s.id')
+            ->from('staff as s')
+            ->join('login_credential as lc', 'lc.user_id = s.id AND lc.role NOT IN (6, 7)', 'inner')
+            ->where('s.id', $recipientID)
+            ->where('s.branch_id', $branchID)
+            ->where('s.id !=', $staffID)
+            ->limit(1)
+            ->get()
+            ->row_array();
+
+        if (empty($category) || empty($recipient)) {
+            set_alert('error', 'The selected complaint type or recipient is not available for your school.');
+            redirect(base_url('dashboard'));
+        }
+
+        $subject = trim((string) $this->input->post('subject'));
+        $description = trim((string) $this->input->post('note'));
+        $this->load->model('reception_model');
+        $this->reception_model->complaintSave(array(
+            'complainant_name' => get_type_name_by_id('staff', $staffID),
+            'phone_number' => '',
+            'type_id' => $typeID,
+            'staff_id' => $recipientID,
+            'date' => date('Y-m-d'),
+            'note' => 'Subject: ' . $subject . "\n\n" . $description,
+        ));
+
+        set_alert('success', 'Your complaint has been submitted successfully.');
+        redirect(base_url('dashboard'));
     }
 }

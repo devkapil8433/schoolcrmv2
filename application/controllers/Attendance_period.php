@@ -3,6 +3,8 @@ defined('BASEPATH') or exit('No direct script access allowed');
 
 class Attendance_period extends Admin_Controller
 {
+    protected $teacherClassSections;
+
     public function __construct()
     {
         parent::__construct();
@@ -38,6 +40,9 @@ class Attendance_period extends Admin_Controller
             if ($this->form_validation->run() == true) {
                 $classID = $this->input->post('class_id');
                 $sectionID = $this->input->post('section_id');
+                if (!$this->teacher_can_access_class_section($classID, $sectionID)) {
+                    access_denied();
+                }
                 $subject_timetableID = $this->input->post('subject_timetable_id');
                 $date = $this->input->post('date');
                 $this->data['date'] = $date;
@@ -47,9 +52,45 @@ class Attendance_period extends Admin_Controller
         $this->data['getWeekends'] = $this->application_model->getWeekends($branchID);
         $this->data['getHolidays'] = $this->attendance_model->getHolidays($branchID);
         if (isset($_POST['save'])) {
-            $attendance = $this->input->post('attendance');
+            $attendance = (array) $this->input->post('attendance');
             $date = $this->input->post('date');
             $subject_timetable_id = $this->input->post('subject_timetable_id');
+            if (is_teacher_loggedin()) {
+                $period = $this->db->get_where('timetable_class', array(
+                    'id' => (int) $subject_timetable_id,
+                    'branch_id' => (int) $branchID,
+                    'session_id' => (int) get_session_id(),
+                ))->row();
+                if (empty($period) || !$this->teacher_can_access_class_section($period->class_id, $period->section_id)) {
+                    access_denied();
+                }
+                foreach ($attendance as $value) {
+                    $enrollID = isset($value['enroll_id']) ? (int) $value['enroll_id'] : 0;
+                    $enroll = $this->db->get_where('enroll', array(
+                        'id' => $enrollID,
+                        'branch_id' => (int) $branchID,
+                        'session_id' => (int) get_session_id(),
+                        'class_id' => (int) $period->class_id,
+                        'section_id' => (int) $period->section_id,
+                        'student_id' => (int) (isset($value['student_id']) ? $value['student_id'] : 0),
+                    ))->row();
+                    if (empty($enroll)) {
+                        access_denied();
+                    }
+                    if (!empty($value['attendance_id'])) {
+                        $existingAttendance = $this->db->get_where('student_subject_attendance', array(
+                            'id' => (int) $value['attendance_id'],
+                            'enroll_id' => $enrollID,
+                            'subject_timetable_id' => (int) $subject_timetable_id,
+                            'date' => $date,
+                            'branch_id' => (int) $branchID,
+                        ))->row();
+                        if (empty($existingAttendance)) {
+                            access_denied();
+                        }
+                    }
+                }
+            }
             foreach ($attendance as $key => $value) {
                 $attStatus = (isset($value['status']) ? $value['status'] : "");
                 $studentID = $value['student_id'];
@@ -65,6 +106,10 @@ class Attendance_period extends Admin_Controller
                     $this->db->insert('student_subject_attendance', $arrayAttendance);
                 } else {
                     $this->db->where('id', $value['attendance_id']);
+                    $this->db->where('enroll_id', $value['enroll_id']);
+                    $this->db->where('subject_timetable_id', $subject_timetable_id);
+                    $this->db->where('date', $date);
+                    $this->db->where('branch_id', $branchID);
                     $this->db->update('student_subject_attendance', array('status' => $attStatus, 'remark' => $value['remark']));
                 }
                 // send student absent then sms
@@ -95,6 +140,9 @@ class Attendance_period extends Admin_Controller
         if ($_POST) {
             $this->data['class_id'] = $this->input->post('class_id');
             $this->data['section_id'] = $this->input->post('section_id');
+            if (!$this->teacher_can_access_class_section($this->data['class_id'], $this->data['section_id'])) {
+                access_denied();
+            }
             $this->data['date'] = $this->input->post('date');
             $date = date('l', strtotime($this->data['date']));
             $date = strtolower($date);
@@ -118,6 +166,9 @@ class Attendance_period extends Admin_Controller
         if ($_POST) {
             $this->data['class_id'] = $this->input->post('class_id');
             $this->data['section_id'] = $this->input->post('section_id');
+            if (!$this->teacher_can_access_class_section($this->data['class_id'], $this->data['section_id'])) {
+                access_denied();
+            }
             $this->data['subject_id'] = $this->input->post('subject_id');
             $this->data['month'] = date('m', strtotime($this->input->post('timestamp')));
             $this->data['year'] = date('Y', strtotime($this->input->post('timestamp')));
@@ -192,6 +243,9 @@ class Attendance_period extends Admin_Controller
             if ($this->form_validation->run() == true) {
                 $classID = $this->input->post('class_id');
                 $sectionID = $this->input->post('section_id');
+                if (!$this->teacher_can_access_class_section($classID, $sectionID)) {
+                    access_denied();
+                }
                 $subject_timetableID = $this->input->post('subject_timetable_id');
                 $date = $this->input->post('date');
                 $this->data['class_id'] = $classID;
@@ -209,6 +263,18 @@ class Attendance_period extends Admin_Controller
         $this->load->view('layout/index', $this->data);
     }
 
+    protected function teacher_can_access_class_section($classID, $sectionID)
+    {
+        if (!is_teacher_loggedin()) {
+            return true;
+        }
+        if ($this->teacherClassSections === null) {
+            $this->teacherClassSections = $this->app_lib->get_class_teacher_sections();
+        }
+        return isset($this->teacherClassSections[(int) $classID])
+            && in_array((int) $sectionID, $this->teacherClassSections[(int) $classID], true);
+    }
+
     // get subject list based on class section
     public function getByClassSection()
     {
@@ -219,7 +285,7 @@ class Attendance_period extends Admin_Controller
         $date = date('l', strtotime($this->input->post('date')));
         $date = strtolower($date);
 
-        if (!empty($classID)) {
+        if (!empty($classID) && $this->teacher_can_access_class_section($classID, $sectionID)) {
             $query = $this->attendance_period_model->getSubjectByClassSection($classID, $sectionID, $date);
             if ($query->num_rows() > 0) {
                 $html .= '<option value="">' . translate('select') . '</option>';

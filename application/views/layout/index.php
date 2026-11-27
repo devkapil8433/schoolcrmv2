@@ -22,6 +22,9 @@
 					<a class="page-title-icon" href="<?php echo base_url('dashboard');?>"><i class="fas fa-home"></i></a>
 					<h2><?php echo $title;?></h2>
 				</header>
+				<?php if (get_subscription_notice() != '') { ?>
+				<div class="alert alert-warning" style="margin-bottom:15px;"><i class="fas fa-exclamation-triangle"></i> <?php echo html_escape(get_subscription_notice()); ?></div>
+				<?php } ?>
 				<?php $this->load->view($sub_page); ?>
 			</section>
 		</div>

@@ -1,5 +1,5 @@
 <?php $currency_symbol = $global_config['currency_symbol'];?>
-<section class="panel">
+<section class="panel fee-collection-filter">
 	<div class="tabs-custom">
 		<ul class="nav nav-tabs">
 			<li class="active">

@@ -32,6 +32,9 @@
 <script src="<?php echo asset_url('assets/js/plug.init.js');?>"></script>
 <script src="<?php echo asset_url('assets/js/app.js');?>"></script>
 <script src="<?php echo asset_url('assets/js/app.fn.js');?>"></script>
+<?php if ((isset($main_menu) && in_array($main_menu, array('fees', 'fees_structure', 'fees_repots'), true)) || in_array(strtolower($this->router->fetch_class()), array('fees', 'fees_structure'), true)): ?>
+<script src="<?php echo asset_url('assets/js/fee-collection-ui.js?v=2');?>"></script>
+<?php endif; ?>
 
 <script type="text/javascript">
 	jQuery.extend(jQuery.validator.messages, {

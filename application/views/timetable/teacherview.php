@@ -255,8 +255,13 @@ $widget = (is_superadmin_loggedin() ? "col-md-6" : "col-md-offset-3 col-md-6"); 
 									echo '<div class="swr-tt-cell-inner">';
 									echo '<div class="swr-tt-cell-body">';
 									if ($isBreak) {
-										echo '<span class="tt-p-break">BREAK</span>';
+										$breakMarker = strtoupper(trim((string) $timetable->class_room));
+										$breakLabel = in_array($breakMarker, array('DIARY CHECK', 'LUNCH'), true) ? $breakMarker : 'BREAK';
+										echo '<span class="tt-p-break">' . html_escape($breakLabel) . '</span>';
 										echo '<span class="tt-p-time">' . html_escape($tStart) . ' – ' . html_escape($tEnd) . '</span>';
+										if ($breakLabel === 'DIARY CHECK') {
+											echo '<span class="tt-p-meta">' . html_escape($timetable->class_name) . ' (' . html_escape($timetable->section_name) . ')</span>';
+										}
 									} else {
 										$subLabel = !empty($timetable->subject_name) ? $timetable->subject_name : get_type_name_by_id('subject', $timetable->subject_id);
 										$subCode = !empty($timetable->subject_code) ? ' (' . $timetable->subject_code . ')' : '';

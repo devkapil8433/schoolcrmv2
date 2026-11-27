@@ -39,6 +39,34 @@ $summary = isset($summary) && is_array($summary) ? $summary : array(
 $report_rows = isset($report_rows) && is_array($report_rows) ? $report_rows : array();
 $student_valid = !empty($student_valid);
 
+$ptmWaHref = '';
+if ($student_block) {
+	$ptmWaMobile = isset($student_block['mobile']) ? preg_replace('/\D+/', '', (string) $student_block['mobile']) : '';
+	if ($ptmWaMobile !== '') {
+		if (strlen($ptmWaMobile) === 10) {
+			$ptmWaMobile = '91' . $ptmWaMobile;
+		}
+		$ptmWaDress = isset($discipline_dress) ? $discipline_dress : '—';
+		$ptmWaConduct = isset($discipline_conduct) ? $discipline_conduct : '—';
+		$ptmWaGrade = isset($grade_display) && $grade_display !== '' ? $grade_display : (isset($summary['grade']) ? $summary['grade'] : '—');
+		$ptmShareText = '*' . $school_name . ' - PTM Report*'
+			. "\n" . 'Student: ' . $student_block['student_name']
+			. "\n" . 'Class: ' . $student_block['class_name'] . ' | Roll No: ' . $student_block['roll']
+			. "\n" . 'Month: ' . $monthLabel
+			. "\n" . 'Attendance: ' . (int) $summary['attend_days'] . '/' . (int) $summary['school_open_days'] . ' days (' . (int) (isset($summary['attendance_pct']) ? $summary['attendance_pct'] : 0) . '%)'
+			. "\n" . 'Discipline: Dress - ' . $ptmWaDress . ', Conduct - ' . $ptmWaConduct
+			. "\n" . 'Work: ' . (int) (isset($summary['work_pct']) ? $summary['work_pct'] : 0) . '% | Grade: ' . $ptmWaGrade;
+		$ptmPendingFee = isset($student_block['pending_fee']) ? (float) $student_block['pending_fee'] : 0;
+		if ($ptmPendingFee > 0) {
+			$ptmShareText .= "\n" . 'Pending Fee: ' . html_entity_decode('&#8377;', ENT_QUOTES, 'UTF-8') . number_format($ptmPendingFee, 2);
+		}
+		if (!empty($summary['parent_note'])) {
+			$ptmShareText .= "\n\n" . trim(preg_replace('/\s+/', ' ', html_entity_decode(strip_tags(str_replace(array('<br>', '<br/>', '<br />'), ' ', (string) $summary['parent_note'])), ENT_QUOTES, 'UTF-8')));
+		}
+		$ptmWaHref = 'https://wa.me/' . $ptmWaMobile . '?text=' . rawurlencode($ptmShareText);
+	}
+}
+
 if (!function_exists('ptm_table_cell_class')) {
 	function ptm_table_cell_class($type, $val, $attendance = '')
 	{
@@ -158,6 +186,17 @@ while (count($report_rows) < $minRows) {
 						<button type="button" class="btn btn-default" title="Print / PDF" aria-label="Print" onclick="ptmOpenPdf();">
 							<i class="fas fa-print"></i>
 						</button>
+						<?php if ($student_block): ?>
+						<?php if ($ptmWaHref !== ''): ?>
+						<a class="btn btn-default btn-ptm-whatsapp" href="<?= html_escape($ptmWaHref) ?>" target="_blank" rel="noopener" title="Send report to parent on WhatsApp" aria-label="WhatsApp">
+							<i class="fab fa-whatsapp"></i>
+						</a>
+						<?php else: ?>
+						<button type="button" class="btn btn-default btn-ptm-whatsapp" title="Parent mobile number not available" aria-label="WhatsApp" onclick="window.alert('Parent mobile number is not available for this student.');">
+							<i class="fab fa-whatsapp"></i>
+						</button>
+						<?php endif; ?>
+						<?php endif; ?>
 					</div>
 				</div>
 				<?php echo form_close(); ?>
@@ -358,7 +397,7 @@ while (count($report_rows) < $minRows) {
 								<span>Blue = holiday / Sunday</span>
 							</div>
 							<div class="swr-report-block ptm-footer-report">
-								<h3>Report:-</h3>
+								<h3><i class="fas fa-chart-line" style="color:#6386ad;margin-right:6px;"></i>Report Summary</h3>
 								<div class="prf-report-body">
 									<div class="prf-report-left">
 										<div class="prf-sum-row">
@@ -506,6 +545,17 @@ while (count($report_rows) < $minRows) {
 	padding-bottom: 1px;
 	flex: 0 0 auto;
 	margin-left: auto;
+}
+.ptm-filter-actions .btn-ptm-whatsapp {
+	background: #25d366;
+	border-color: #1eb85a;
+	color: #fff;
+}
+.ptm-filter-actions .btn-ptm-whatsapp:hover,
+.ptm-filter-actions .btn-ptm-whatsapp:focus {
+	background: #1eb85a;
+	border-color: #169e4c;
+	color: #fff;
 }
 @media (min-width: 1200px) {
 	.ptm-filters { flex-wrap: nowrap; }
@@ -776,85 +826,101 @@ while (count($report_rows) < $minRows) {
 	break-inside: avoid;
 }
 .ptm-legend-row {
-	font-size: 11px;
-	color: #555;
-	margin: 0 0 8px;
+	font-size: 10px;
+	color: #657587;
+	margin: 0 0 10px;
 	display: flex;
 	flex-wrap: wrap;
-	gap: 8px 16px;
+	gap: 6px;
+}
+.ptm-legend-row span {
+	padding: 4px 8px;
+	border: 1px solid #e9eef4;
+	border-radius: 12px;
+	background: #fbfcfe;
 }
 .ptm-footer-report.swr-report-block {
 	margin: 0;
-	border: 1px solid #000;
-	padding: 12px 14px;
+	border: 1px solid #e6ecf2;
+	border-radius: 12px;
+	padding: 16px;
 	background: #fff;
+	box-shadow: 0 6px 20px rgba(37, 55, 75, .04);
 }
 .ptm-footer-report h3 {
-	font-size: 15px;
+	font-size: 16px;
 	font-weight: 700;
-	margin: 0 0 12px;
+	color: #2f4358;
+	margin: 0 0 14px;
 }
 .ptm-print-bottom .prf-report-body {
 	display: grid;
 	grid-template-columns: minmax(280px, 1.55fr) minmax(180px, 0.85fr) 90px;
-	gap: 12px 14px;
-	align-items: stretch;
+	gap: 10px;
+	align-items: start;
 }
 .ptm-print-bottom .prf-report-left {
 	display: flex;
 	flex-direction: column;
 	justify-content: flex-start;
-	gap: 12px;
+	gap: 8px;
 	min-width: 0;
 }
 .ptm-print-bottom .prf-report-mid { min-width: 0; }
 .ptm-print-bottom .prf-sum-row {
 	display: grid;
-	grid-template-columns: minmax(120px, 140px) minmax(0, 1fr);
-	gap: 8px 10px;
-	align-items: start;
+	grid-template-columns: minmax(125px, 145px) minmax(0, 1fr);
+	gap: 8px;
+	align-items: center;
+	padding: 10px 12px;
+	border: 1px solid #eaf0f5;
+	border-radius: 9px;
+	background: #fbfcfe;
 }
-.ptm-print-bottom .prf-rlbl { font-weight: 700; font-size: 13px; line-height: 1.3; }
+.ptm-print-bottom .prf-rlbl { color: #526579; font-weight: 700; font-size: 12px; line-height: 1.35; }
 .ptm-print-bottom .prf-rval { min-width: 0; }
 .ptm-print-bottom .swr-field-row {
 	display: flex;
-	flex-wrap: nowrap;
+	flex-wrap: wrap;
 	gap: 8px;
 	margin: 0;
 	align-items: center;
 }
 .ptm-print-bottom .swr-field-row label {
 	display: inline-block;
-	font-size: 12px;
+	font-size: 11px;
 	margin: 0;
-	font-weight: normal;
+	color: #7d8b99;
+	font-weight: 600;
 	white-space: nowrap;
 }
 .ptm-print-bottom .swr-field-box {
-	border: 1px solid #000;
+	border: 1px solid #e5ebf1;
+	border-radius: 7px;
 	min-width: 36px;
 	flex: 1 1 auto;
 	height: 28px;
 	display: inline-flex;
 	align-items: center;
 	justify-content: center;
-	padding: 0 8px;
+	padding: 0 10px;
 	font-weight: 700;
 	background: #fff;
+	color: #435265;
 }
 .ptm-print-bottom .swr-field-box.prf-att-box {
 	flex: 0 0 auto;
 	min-width: 0;
 	width: auto;
-	max-width: 140px;
-	height: 24px;
+	max-width: 160px;
+	height: 28px;
 	padding: 0 10px;
 	font-size: 12px;
 }
-.ptm-print-bottom .swr-field-box.prf-field-green { background: #2e7d32; color: #fff; border-color: #1b5e20; }
-.ptm-print-bottom .swr-field-box.prf-field-yellow { background: #ffeb3b; color: #000; border-color: #f9a825; }
-.ptm-print-bottom .swr-field-box.prf-field-orange { background: #ff9800; color: #fff; border-color: #e65100; }
-.ptm-print-bottom .swr-field-box.prf-field-red { background: #e53935; color: #fff; border-color: #c62828; }
+.ptm-print-bottom .swr-field-box.prf-field-green { background: #dcefe1; color: #356b48; border-color: #b6d6bf; }
+.ptm-print-bottom .swr-field-box.prf-field-yellow { background: #f7ebbd; color: #725b1e; border-color: #dfcf86; }
+.ptm-print-bottom .swr-field-box.prf-field-orange { background: #f8dfc9; color: #8b5125; border-color: #e2bd9c; }
+.ptm-print-bottom .swr-field-box.prf-field-red { background: #f4d8d5; color: #8b433c; border-color: #dfb0aa; }
 .ptm-print-bottom .swr-subj-grid {
 	display: flex;
 	flex-wrap: wrap;
@@ -879,7 +945,8 @@ while (count($report_rows) < $minRows) {
 	justify-content: center;
 }
 .ptm-print-bottom .swr-subj-item .bx {
-	border: 1px solid #000;
+	border: 1px solid #e5ebf1;
+	border-radius: 7px;
 	width: 100%;
 	min-height: 40px;
 	padding: 6px 4px;
@@ -892,10 +959,10 @@ while (count($report_rows) < $minRows) {
 	box-sizing: border-box;
 	background: #fff;
 }
-.ptm-print-bottom .swr-subj-item .bx.hindi-green { background: #2e7d32; color: #fff; border-color: #1b5e20; }
-.ptm-print-bottom .swr-subj-item .bx.prf-bx-yellow { background: #ffeb3b; color: #000; border-color: #f9a825; }
-.ptm-print-bottom .swr-subj-item .bx.prf-bx-orange { background: #ff9800; color: #fff; border-color: #e65100; }
-.ptm-print-bottom .swr-subj-item .bx.prf-bx-red { background: #e53935; color: #fff; border-color: #c62828; }
+.ptm-print-bottom .swr-subj-item .bx.hindi-green { background: #dcefe1; color: #356b48; border-color: #b6d6bf; }
+.ptm-print-bottom .swr-subj-item .bx.prf-bx-yellow { background: #f7ebbd; color: #725b1e; border-color: #dfcf86; }
+.ptm-print-bottom .swr-subj-item .bx.prf-bx-orange { background: #f8dfc9; color: #8b5125; border-color: #e2bd9c; }
+.ptm-print-bottom .swr-subj-item .bx.prf-bx-red { background: #f4d8d5; color: #8b433c; border-color: #dfb0aa; }
 .ptm-print-bottom .prf-report-right {
 	display: flex;
 	align-items: center;
@@ -911,12 +978,13 @@ while (count($report_rows) < $minRows) {
 	align-items: center;
 	margin: 0;
 }
-.ptm-print-bottom .swr-grade-box .g-label { font-size: 14px; font-weight: 700; margin-bottom: 6px; }
+.ptm-print-bottom .swr-grade-box .g-label { color: #647589; font-size: 12px; font-weight: 700; margin-bottom: 6px; }
 .ptm-print-bottom .swr-grade-box .g-val {
-	width: 78px;
-	height: 78px;
-	border: 1px solid #000;
-	font-size: 40px;
+	width: 72px;
+	height: 72px;
+	border: 1px solid #e5ebf1;
+	border-radius: 12px;
+	font-size: 36px;
 	font-weight: 800;
 	display: flex;
 	align-items: center;
@@ -924,18 +992,19 @@ while (count($report_rows) < $minRows) {
 	margin: 0 auto;
 	background: #fff;
 }
-.ptm-print-bottom .swr-grade-box .g-val.g-a { background: #2e7d32; color: #fff; }
-.ptm-print-bottom .swr-grade-box .g-val.g-b { background: #66bb6a; color: #000; }
-.ptm-print-bottom .swr-grade-box .g-val.g-c { background: #fdd835; color: #000; }
-.ptm-print-bottom .swr-grade-box .g-val.g-d { background: #e53935; color: #fff; }
+.ptm-print-bottom .swr-grade-box .g-val.g-a { background: #dcefe1; color: #356b48; }
+.ptm-print-bottom .swr-grade-box .g-val.g-b { background: #e1efdc; color: #47734c; }
+.ptm-print-bottom .swr-grade-box .g-val.g-c { background: #f7ebbd; color: #725b1e; }
+.ptm-print-bottom .swr-grade-box .g-val.g-d { background: #f4d8d5; color: #8b433c; }
 .ptm-print-bottom .prf-skill-box {
-	border: 1px solid #000;
-	padding: 8px 10px;
-	background: #fff;
+	border: 1px solid #eaf0f5;
+	border-radius: 9px;
+	padding: 12px;
+	background: #fbfcfe;
 	height: 100%;
 	box-sizing: border-box;
 }
-.ptm-print-bottom .prf-skill-box .prf-skill-title { font-size: 12px; font-weight: 700; margin: 0 0 8px; line-height: 1.3; }
+.ptm-print-bottom .prf-skill-box .prf-skill-title { color: #526579; font-size: 12px; font-weight: 700; margin: 0 0 10px; line-height: 1.3; }
 .ptm-print-bottom .prf-skill-row {
 	display: grid;
 	grid-template-columns: 58px minmax(36px, 1fr) 40px minmax(48px, 0.9fr);
@@ -962,16 +1031,17 @@ while (count($report_rows) < $minRows) {
 .ptm-print-bottom .prf-skill-score { font-size: 10px; font-weight: 700; white-space: nowrap; color: #333; }
 .ptm-print-bottom .prf-skill-comment { font-size: 11px; font-weight: 700; text-align: right; color: #111; line-height: 1.25; }
 .ptm-note {
-	margin: 8px 0 0;
+	margin: 10px 0 0;
 	padding: 10px 14px;
 	font-size: 12px;
 	font-weight: 600;
 	text-align: center;
 	line-height: 1.45;
-	border: 1px solid #ddd;
+	border: 1px solid #e9eef4;
+	border-radius: 9px;
 }
-.ptm-note-low { background: #fff8f8; color: #b71c1c; }
-.ptm-note-ok { background: #f1f8e9; color: #1b5e20; }
+.ptm-note-low { background: #fdf6f5; color: #8b433c; border-color: #f0d8d5; }
+.ptm-note-ok { background: #f2f8f3; color: #356b48; border-color: #d5e8da; }
 @media (max-width: 1100px) {
 	.ptm-print-bottom .prf-report-body {
 		grid-template-columns: 1fr 90px;
@@ -1099,7 +1169,19 @@ while (count($report_rows) < $minRows) {
 		page-break-inside: auto;
 		border-collapse: collapse !important;
 		width: 100% !important;
+		table-layout: fixed !important;
+		font-size: 9px !important;
 	}
+	.ptm-table th, .ptm-table td {
+		min-width: 0 !important;
+		padding: 3px 2px !important;
+		font-size: 9px !important;
+		line-height: 1.2 !important;
+	}
+	.ptm-table .ptm-th-sr, .ptm-table .ptm-td-sr { width: 26px !important; }
+	.ptm-table .ptm-th-date, .ptm-table .ptm-td-date { width: 64px !important; white-space: normal !important; }
+	.ptm-table .ptm-rotate { height: auto !important; min-width: 0 !important; width: auto !important; padding: 3px 1px !important; }
+	.ptm-table .ptm-rotate > div { transform: none !important; font-size: 8px !important; white-space: normal !important; }
 	.ptm-table thead {
 		display: table-header-group !important;
 	}
@@ -1187,7 +1269,12 @@ function ptmOpenPdf() {
 		'.ptm-report-sheet{border:none!important;padding:0!important;background:#fff!important;}',
 		'.ptm-side-label{display:none!important;}',
 		'.table-responsive,.ptm-table-wrap{overflow:visible!important;max-height:none!important;border:1px solid #111!important;}',
-		'.ptm-table{width:100%!important;border-collapse:collapse!important;page-break-inside:auto;}',
+		'.ptm-table{width:100%!important;border-collapse:collapse!important;page-break-inside:auto;table-layout:fixed!important;font-size:9px!important;}',
+		'.ptm-table th,.ptm-table td{min-width:0!important;padding:3px 2px!important;font-size:9px!important;line-height:1.2!important;}',
+		'.ptm-table .ptm-th-sr,.ptm-table .ptm-td-sr{width:26px!important;}',
+		'.ptm-table .ptm-th-date,.ptm-table .ptm-td-date{width:64px!important;white-space:normal!important;}',
+		'.ptm-table .ptm-rotate{height:auto!important;min-width:0!important;width:auto!important;padding:3px 1px!important;}',
+		'.ptm-table .ptm-rotate>div{transform:none!important;font-size:8px!important;white-space:normal!important;}',
 		'.ptm-table thead{display:table-header-group!important;}',
 		'.ptm-table thead th{position:static!important;top:auto!important;left:auto!important;background:#fff!important;border:1px solid #111!important;-webkit-print-color-adjust:exact;print-color-adjust:exact;}',
 		'.ptm-th-sr,.ptm-th-date,.ptm-td-sr,.ptm-td-date{position:static!important;left:auto!important;box-shadow:none!important;background:#fff!important;}',

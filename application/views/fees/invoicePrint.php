@@ -19,7 +19,7 @@ if (count($student_array)) {
 				</div>
 			</div>
 			<div class="col-md-6 text-right">
-				<h4 class="mt-none mb-none text-dark">Invoice No #<?=$invoice['invoice_no']?></h4>
+				<h4 class="mt-none mb-none text-dark">Fee Account Ref: <?=html_escape($invoice['invoice_no'])?></h4>
 				<p class="mb-none">
 					<span class="text-dark"><?=translate('date')?> : </span>
 					<span class="value"><?=_d(date('Y-m-d'))?></span>

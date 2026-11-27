@@ -180,6 +180,24 @@ foreach (array(8, 9, 10, 11) as $fixedId) {
 							?>
 						</div>
 					</div>
+					<?php if (!empty($digital_diary_lesson_enabled)) { ?>
+					<div style="flex:1 1 0; min-width:110px;">
+						<div class="form-group">
+							<label class="portal-label"><i class="fas fa-list-ol text-muted"></i> <?=translate('lesson')?></label>
+							<?php
+							$arrayLesson = array('' => translate('select'));
+							if (!empty($digital_diary_lessons) && is_array($digital_diary_lessons)) {
+								foreach ($digital_diary_lessons as $lrow) {
+									$lid = (int) $lrow['id'];
+									$lessonNo = trim((string) $lrow['lesson_no']);
+									$arrayLesson[$lid] = trim(($lessonNo !== '' ? $lessonNo . '. ' : '') . $lrow['lesson_name']);
+								}
+							}
+							echo form_dropdown('lesson_id', $arrayLesson, $selected_lesson_id, "class='portal-input' id='lesson_id' data-plugin-selectTwo data-width='100%' ");
+							?>
+						</div>
+					</div>
+					<?php } ?>
 					<div style="flex:1 1 0; min-width:140px;">
 						<div class="form-group">
 							<label class="portal-label"><i class="fas fa-layer-group text-muted"></i> <?=translate('exercise')?> <span class="text-muted">(optional)</span></label>
@@ -198,23 +216,6 @@ foreach (array(8, 9, 10, 11) as $fixedId) {
 							</div>
 						</div>
 					</div>
-					<?php if (!empty($digital_diary_lesson_enabled)) { ?>
-					<div style="flex:1 1 0; min-width:110px;">
-						<div class="form-group">
-							<label class="portal-label"><i class="fas fa-list-ol text-muted"></i> <?=translate('lesson')?></label>
-							<?php
-							$arrayLesson = array('' => translate('select'));
-							if (!empty($digital_diary_lessons) && is_array($digital_diary_lessons)) {
-								foreach ($digital_diary_lessons as $lrow) {
-									$lid = (int) $lrow['id'];
-									$arrayLesson[$lid] = trim($lrow['lesson_no'] . '. ' . $lrow['lesson_name']);
-								}
-							}
-							echo form_dropdown('lesson_id', $arrayLesson, $selected_lesson_id, "class='portal-input' id='lesson_id' data-plugin-selectTwo data-width='100%' ");
-							?>
-						</div>
-					</div>
-					<?php } ?>
 					<div style="flex:0 0 auto;">
 						<div class="form-group">
 							<button type="submit" class="btn-portal-secondary"><i class="fas fa-check"></i> Apply</button>

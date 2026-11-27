@@ -49,7 +49,19 @@
 						<?php
 						$count = 1;
 						$classes = $this->db->where('branch_id', $branch_id)->get('class')->result();
+						$teacherClassSections = is_teacher_loggedin()
+							? $this->app_lib->get_class_teacher_sections($branch_id)
+							: array();
 						foreach ($classes as $key => $class) {
+							if (is_teacher_loggedin() && !isset($teacherClassSections[(int) $class->id])) {
+								continue;
+							}
+							$sectionIDs = is_teacher_loggedin()
+								? $teacherClassSections[(int) $class->id]
+								: array();
+							if (is_teacher_loggedin()) {
+								$this->db->where_in('section_id', $sectionIDs);
+							}
 							$total_student = $this->db->select('count(id) as total')->where(array('class_id' => $class->id, 'branch_id' => $branch_id, 'session_id' => get_session_id()))->get('enroll')->row()->total;
 							?>
 						<tr>
@@ -58,6 +70,9 @@
 							<td><?php
 								$sections = $this->db->get_where("sections_allocation", array('class_id' => $class->id))->result();
 								foreach ($sections as $section) {
+									if (is_teacher_loggedin() && !in_array((int) $section->section_id, $sectionIDs, true)) {
+										continue;
+									}
 									$students = $this->db->select('count(id) as total')->where(array('class_id' => $class->id, 'section_id' =>  $section->section_id, 'branch_id' => $branch_id, 'session_id' => get_session_id()))->get('enroll')->row()->total;
 									echo get_type_name_by_id('section', $section->section_id) . " (" . ($students == 0 ? $students : str_pad($students, 2, "0", STR_PAD_LEFT)) .")<br>";
 								}

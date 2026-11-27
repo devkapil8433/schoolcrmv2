@@ -503,7 +503,24 @@ class Fees extends Admin_Controller
                     );
                     echo json_encode($json_data);
                 } else {
-                    echo $this->fees_model->getInvoiceList();
+                    $branchID = is_superadmin_loggedin()
+                        ? (int) $this->input->post('branch_id')
+                        : (int) get_loggedin_branch_id();
+                    if ($branchID < 1) {
+                        echo json_encode(array(
+                            'draw' => (int) $this->input->post('draw'),
+                            'recordsTotal' => 0,
+                            'recordsFiltered' => 0,
+                            'data' => array(),
+                        ));
+                        return;
+                    }
+                    $syncKey = 'classwise_fee_sync_v2_' . $branchID . '_' . get_session_id();
+                    if (!$this->session->userdata($syncKey)) {
+                        $this->fees_model->allocateFeesForEnrolledStudents($branchID);
+                        $this->session->set_userdata($syncKey, true);
+                    }
+                    echo $this->fees_model->getInvoiceList($branchID);
                 }
             }
         }
@@ -542,15 +559,134 @@ class Fees extends Admin_Controller
         if (empty($basic))
             redirect(base_url('dashboard'));
 
+        $this->fees_model->allocateFeesForStudent($basic['id'], $basic['class_id'], $basic['branch_id']);
         if (moduleIsEnabled('transport')) {
             $this->data['transport_fees'] = $this->fees_model->getStudentTransportFees($enrollID, $basic['stoppage_point_id']);
         }
+        $this->data['payment_receipts'] = $this->fees_model->getStudentPaymentReceipts($basic['id'], $basic['branch_id']);
         $this->data['invoice'] = $this->fees_model->getInvoiceStatus($enrollID);
         $this->data['basic'] = $basic;
         $this->data['title'] = translate('invoice_history');
         $this->data['main_menu'] = 'fees';
         $this->data['sub_page'] = 'fees/collect';
         $this->load->view('layout/index', $this->data);
+    }
+
+    public function receipt_print()
+    {
+        if (!get_permission('invoice', 'is_view')) {
+            access_denied();
+        }
+        $enrollID = (int) $this->input->post('enroll_id');
+        $basic = $this->fees_model->getInvoiceBasic($enrollID);
+        $receiptKeys = $this->input->post('receipt_keys');
+        if (empty($basic) || !is_array($receiptKeys)) {
+            show_error('Invalid receipt request.', 400);
+        }
+
+        $allowedBranch = is_superadmin_loggedin() ? (int) $basic['branch_id'] : (int) get_loggedin_branch_id();
+        if ((int) $basic['branch_id'] !== $allowedBranch) {
+            access_denied();
+        }
+
+        $receiptMap = array();
+        foreach ($this->fees_model->getStudentPaymentReceipts($basic['id'], $allowedBranch) as $receipt) {
+            $receiptMap[$receipt['receipt_key']] = $receipt;
+        }
+        $selectedReceipts = array();
+        foreach (array_unique($receiptKeys) as $receiptKey) {
+            if (isset($receiptMap[$receiptKey])) {
+                $selectedReceipts[] = $receiptMap[$receiptKey];
+            }
+        }
+        if (empty($selectedReceipts)) {
+            show_error('No valid receipts were selected.', 400);
+        }
+
+        $pageSize = strtoupper(trim((string) $this->input->post('page_size')));
+        if (!in_array($pageSize, array('A4', 'A5', 'LETTER', 'LEGAL'), true)) {
+            $pageSize = 'A4';
+        }
+        $this->data['basic'] = $basic;
+        $this->data['receipts'] = $selectedReceipts;
+        $this->data['page_size'] = $pageSize;
+        $this->load->view('fees/receipt_print', $this->data);
+    }
+
+    public function reverse_receipt()
+    {
+        if (!get_permission('fees_revert', 'is_delete')) {
+            echo json_encode(array('status' => 'error', 'message' => translate('access_denied')));
+            return;
+        }
+        if (strtolower($this->input->method()) !== 'post') {
+            show_error('Invalid request method.', 405);
+        }
+
+        $enrollID = (int) $this->input->post('enroll_id');
+        $receiptNo = (int) $this->input->post('receipt_no');
+        $reason = trim((string) $this->input->post('reason'));
+        $basic = $this->fees_model->getInvoiceBasic($enrollID);
+        if (empty($basic)) {
+            echo json_encode(array('status' => 'error', 'message' => 'Student record not found.'));
+            return;
+        }
+        $allowedBranch = is_superadmin_loggedin() ? (int) $basic['branch_id'] : (int) get_loggedin_branch_id();
+        if ((int) $basic['branch_id'] !== $allowedBranch) {
+            access_denied();
+        }
+        if ($reason === '') {
+            echo json_encode(array('status' => 'error', 'message' => 'Please enter a reason for reversing this receipt.'));
+            return;
+        }
+
+        $result = $this->fees_model->reverseFeeReceipt(
+            (int) $basic['id'],
+            $allowedBranch,
+            $receiptNo,
+            $reason,
+            (int) get_loggedin_user_id()
+        );
+        echo json_encode($result);
+    }
+
+    public function correct_receipt()
+    {
+        if (!get_permission('fees_revert', 'is_delete')) {
+            echo json_encode(array('status' => 'error', 'message' => translate('access_denied')));
+            return;
+        }
+        if (strtolower($this->input->method()) !== 'post') {
+            show_error('Invalid request method.', 405);
+        }
+
+        $enrollID = (int) $this->input->post('enroll_id');
+        $receiptNo = (int) $this->input->post('receipt_no');
+        $reason = trim((string) $this->input->post('reason'));
+        $correctedAmounts = $this->input->post('corrected_amounts');
+        $basic = $this->fees_model->getInvoiceBasic($enrollID);
+        if (empty($basic)) {
+            echo json_encode(array('status' => 'error', 'message' => 'Student record not found.'));
+            return;
+        }
+        $allowedBranch = is_superadmin_loggedin() ? (int) $basic['branch_id'] : (int) get_loggedin_branch_id();
+        if ((int) $basic['branch_id'] !== $allowedBranch) {
+            access_denied();
+        }
+        if ($reason === '' || !is_array($correctedAmounts)) {
+            echo json_encode(array('status' => 'error', 'message' => 'Enter a correction reason and corrected amount for each receipt item.'));
+            return;
+        }
+
+        $result = $this->fees_model->correctFeeReceipt(
+            (int) $basic['id'],
+            $allowedBranch,
+            $receiptNo,
+            $correctedAmounts,
+            $reason,
+            (int) get_loggedin_user_id()
+        );
+        echo json_encode($result);
     }
 
     public function invoicePrint()
@@ -1105,41 +1241,11 @@ class Fees extends Admin_Controller
     {
         if (!get_permission('fees_revert', 'is_delete')) {
             $array = array('status' => 'error', 'message' => translate('access_denied'));
-            echo json_encode($array);
-            exit();
-        }
-        $array = array('status' => 'success', 'message' => translate('information_deleted'));
-        $ids = $this->input->post('id');
-        foreach ($ids as $key => $value) {
-
-            $feeDetails = $this->db->select('id,amount,fine')->where('id', $value)->get('fee_payment_history')->row();
-            if (!empty($feeDetails)) {
-
-                $amount = ($feeDetails->amount + $feeDetails->fine);
-
-                $sql = "SELECT `transactions`.`account_id`, `transactions_links_details`.`transactions_id` FROM `transactions_links_details` INNER JOIN `transactions` ON `transactions`.`id` = `transactions_links_details`.`transactions_id` WHERE `transactions_links_details`.`payment_id` = " . $this->db->escape($value);
-                $transactionsDetails = $this->db->query($sql)->row();
-                if (!empty($transactionsDetails)) {
-
-                    $sql = "UPDATE `transactions` SET `amount` = `amount` - $amount, `cr` = `cr` - $amount, `bal` = `bal` - $amount WHERE `id` = " . $this->db->escape($transactionsDetails->transactions_id);
-                    $this->db->query($sql);
-
-                    $sql = "UPDATE `accounts` SET `balance` = `balance` - $amount WHERE `id` = " . $this->db->escape($transactionsDetails->account_id);
-                    $this->db->query($sql);
-
-                    /*$this->db->set('amount', 'amount+' . $amount, false);
-                    $this->db->set('cr', 'cr-' . $amount, false);
-                    $this->db->set('bal', 'bal-' . $amount, false);
-                    $this->db->where('id', $transactionsDetails->transactions_id);
-                    $this->db->update('transactions');
-
-                    $this->db->set('balance', 'balance-' . $amount, false);
-                    $this->db->where('id', $transactionsDetails->account_id);
-                    $this->db->update('accounts');*/
-                }
-                $this->db->where('id', $value);
-                $this->db->delete('fee_payment_history');
-            }
+        } else {
+            $array = array(
+                'status' => 'error',
+                'message' => 'Hard deletion of payment history is disabled. Use the receipt reversal workflow where available.',
+            );
         }
         echo json_encode($array);
     }
@@ -1821,11 +1927,14 @@ class Fees extends Admin_Controller
             return;
         }
         $data = $this->feeMasterPostData();
-        if (empty($data['branch_id']) || empty($data['fee_type_id']) || empty($data['student_category'])) {
+        if (empty($data['branch_id']) || empty($data['fee_type_id'])) {
             echo json_encode(array('status' => 'fail', 'message' => translate('please_fill_all_the_fields')));
             return;
         }
-        $this->fees_model->saveFeeMaster($data);
+        if (!$this->fees_model->saveFeeMaster($data)) {
+            echo json_encode(array('status' => 'fail', 'message' => 'Fee master could not be saved and synchronized.'));
+            return;
+        }
         echo json_encode(array('status' => 'success', 'message' => translate('information_has_been_saved_successfully')));
     }
 
@@ -1886,13 +1995,16 @@ class Fees extends Admin_Controller
             echo json_encode(array('status' => 'fail', 'message' => translate('please_fill_all_the_fields')));
             return;
         }
-        $this->fees_model->updateFeeMaster($feeMasterID, $data);
+        if (!$this->fees_model->updateFeeMaster($feeMasterID, $data)) {
+            echo json_encode(array('status' => 'fail', 'message' => 'Fee master could not be updated and synchronized.'));
+            return;
+        }
         echo json_encode(array('status' => 'success', 'message' => translate('information_has_been_updated_successfully')));
     }
 
     public function fetch_fees_last()
     {
-        if (!get_permission('fees_last', 'is_view') && !get_permission('fees_register', 'is_view')) {
+        if (!get_permission('fees_register', 'is_view')) {
             echo json_encode(array());
             return;
         }
@@ -1907,7 +2019,7 @@ class Fees extends Admin_Controller
 
     public function save_last_balance()
     {
-        if (!get_permission('fees_last', 'is_edit') && !get_permission('fees_register', 'is_edit')) {
+        if (!get_permission('fees_register', 'is_edit')) {
             echo json_encode(array('status' => false));
             return;
         }
@@ -1949,6 +2061,7 @@ class Fees extends Admin_Controller
             'feeTypes' => $this->input->post('feeTypes'),
             'min_due' => $this->input->post('min_due'),
             'max_due' => $this->input->post('max_due'),
+            'branch_id' => $this->input->post('branch_id'),
         );
         echo json_encode(array('data' => $this->fees_model->getFeeDefaulters($filters)));
     }

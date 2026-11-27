@@ -1,8 +1,9 @@
 <?php $widget = (is_superadmin_loggedin() ? 4 : 6); ?>
 <?php if (is_superadmin_loggedin()): ?>
-	<section class="panel">
+	<section class="panel fee-collection-filter">
 		<header class="panel-heading">
-			<h4 class="panel-title"><?= translate('select_ground') ?></h4>
+			<h4 class="panel-title">Select Branch</h4>
+			<p class="fee-panel-subtitle">Choose the branch to search students and collect fees.</p>
 		</header>
 		<?php echo form_open($this->uri->uri_string(), array('class' => 'validate')); ?>
 		<div class="panel-body">
@@ -33,17 +34,25 @@
 <div class="row">
 	<div class="col-md-12">
 		<?php if (!empty($branch_id)) : ?>
-			<section class="panel">
+			<section class="panel fee-collection-search">
 				<header class="panel-heading">
 					<h4 class="panel-title"><?= translate('search_student') ?></h4>
 				</header>
 				<div class="panel-body">
 					<div class="row">
 						<div class="col-md-12">
-							<input type="text" id="studentSearch" class="form-control" placeholder="Search by Admission No, Name, or Mobile No">
+							<label class="fee-student-search-label" for="studentSearch">Find a student</label>
+							<div class="fee-student-search-control">
+								<input type="search" id="studentSearch" class="form-control" placeholder="Try a name, admission no., mobile, guardian, roll no., class or section" autocomplete="off" aria-label="Search by student name, admission number, mobile, guardian, roll number, class, or section" aria-describedby="studentSearchHelp">
+								<button type="button" class="fee-student-search-clear" aria-label="Clear student search" title="Clear search" hidden><i class="fas fa-times"></i></button>
+							</div>
 						</div>
 					</div>
-					<div id="searchResults" class="mt-3"></div>
+					<div class="fee-student-search-tips" aria-label="Searchable student details">
+						<span>Search by</span><span>Name</span><span>Admission no.</span><span>Mobile</span><span>Guardian</span><span>Roll / class</span>
+					</div>
+					<p id="studentSearchHelp" class="fee-student-search-hint">Enter at least 2 characters. You can combine words, for example a student name and class. Results are limited to the selected branch and current session.</p>
+					<div id="searchResults" class="fee-student-search-results mt-3" role="region" aria-live="polite" aria-relevant="additions text"></div>
 				</div>
 			</section>
 
@@ -138,22 +147,45 @@
 
 <script>
 	$(document).ready(function() {
-		$("#studentSearch").keyup(function() {
-			let query = $(this).val();
-			let branch_id = $('#branch_id').val();
+		var liveSearchTimer;
+		var liveSearchRequest;
+		$("#studentSearch").on('input', function() {
+			var query = $.trim($(this).val());
+			var branchID = $('#branch_id').val();
+			$('.fee-student-search-clear').prop('hidden', query.length === 0);
+			window.clearTimeout(liveSearchTimer);
+			if (liveSearchRequest) {
+				liveSearchRequest.abort();
+			}
 
-			if (query.length >= 1) {
-				$.ajax({
+			if (query.length < 2) {
+				$("#searchResults").html(query.length ? '<div class="fee-student-search-status">Type at least 2 characters to search.</div>' : '');
+				return;
+			}
+			$("#searchResults").html('<div class="fee-student-search-status"><i class="fas fa-spinner fa-spin"></i> Searching students...</div>');
+			liveSearchTimer = window.setTimeout(function() {
+				liveSearchRequest = $.ajax({
 					url: "<?= base_url('student/live_search') ?>",
 					method: "POST",
-					data: { query: query, branch_id: branch_id },
+					data: {
+						query: query,
+						branch_id: branchID,
+						"<?= $this->security->get_csrf_token_name(); ?>": "<?= $this->security->get_csrf_hash(); ?>"
+					},
+					dataType: 'html',
 					success: function(data) {
 						$("#searchResults").html(data);
+					},
+					error: function(xhr, status) {
+						if (status !== 'abort') {
+							$("#searchResults").html('<p class="text-center text-danger">Student search failed. Please try again.</p>');
+						}
 					}
 				});
-			} else {
-				$("#searchResults").html("");
-			}
+			}, 250);
+		});
+		$('.fee-student-search-clear').on('click', function() {
+			$('#studentSearch').val('').trigger('input').trigger('focus');
 		});
 	});
 </script>
@@ -311,19 +343,6 @@
 				});
 			}
 		});
-	});
-
-	$(document).on('click', '.fee-group-toggle', function(e) {
-		e.preventDefault();
-		var $btn = $(this);
-		var $more = $('#' + $btn.data('target'));
-		if ($more.is(':visible')) {
-			$more.slideUp(150);
-			$btn.text($btn.data('more') || 'View more');
-		} else {
-			$more.slideDown(150);
-			$btn.text($btn.data('less') || 'View less');
-		}
 	});
 
 	function pdf_sendByemail(enrollID = '', ele) {

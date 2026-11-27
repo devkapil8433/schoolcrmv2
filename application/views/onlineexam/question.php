@@ -48,6 +48,91 @@
 		}
 	}
 ?>
+<style>
+	.qb-flow > .panel {
+		margin-bottom: 12px;
+		border: 1px solid #e3e9f2;
+		border-radius: 9px;
+		box-shadow: 0 2px 8px rgba(27, 45, 75, .04);
+	}
+	.qb-flow > .panel > .panel-heading {
+		padding: 13px 16px;
+		background: linear-gradient(110deg, #f3f7ff, #fff);
+		border-bottom-color: #e7edf5;
+	}
+	.qb-flow .qb-subject-panel > .panel-heading { background: #fbfcfe; }
+	.qb-flow .qb-lesson-panel > .panel-heading { background: #f7fafc; }
+	.qb-flow .qb-type-panel > .panel-heading { background: #fff; }
+	.qb-flow .qb-exercise-panel > .panel-heading { background: #fbf8ff; }
+	.qb-flow .qb-level-label {
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+		padding: 4px 8px;
+		border-radius: 6px;
+		background: #eaf1ff;
+		color: #315fc4;
+		font-size: 11px;
+		font-weight: 700;
+	}
+	.qb-flow .qb-subject-label { background: #fff5e8; color: #a45b08; }
+	.qb-flow .qb-lesson-label { background: #e8f7f1; color: #137653; }
+	.qb-flow .qb-type-label { background: #f1edff; color: #6241ae; }
+	.qb-flow .qb-exercise-label { background: #fff4e8; color: #a45b08; }
+	.qb-flow .qb-qtable {
+		border: 1px solid #e5eaf2;
+		border-radius: 7px;
+		overflow: hidden;
+	}
+	.qb-flow .qb-qtable thead th {
+		background: #f4f7fb;
+		color: #52627a;
+		font-size: 11px;
+		font-weight: 700;
+		text-transform: uppercase;
+		letter-spacing: .035em;
+	}
+	.qb-flow .qb-qtable tbody td { vertical-align: middle; }
+	.qb-flow .qb-question-preview {
+		min-width: 220px;
+		max-width: 780px;
+		color: #25364d;
+		line-height: 1.55;
+		overflow-wrap: anywhere;
+	}
+	.qb-flow .qb-exercise-value {
+		display: inline-block;
+		padding: 4px 8px;
+		border: 1px solid #e3eaf5;
+		border-radius: 999px;
+		background: #f8faff;
+		color: #52627a;
+		font-size: 11px;
+		white-space: nowrap;
+	}
+	.qb-flow-guide {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 8px;
+		margin-bottom: 14px;
+		padding: 10px 12px;
+		border: 1px solid #e6ecf5;
+		border-radius: 8px;
+		background: #f8faff;
+		color: #71809a;
+		font-size: 11px;
+	}
+	.qb-flow-guide strong {
+		color: #344a68;
+		font-weight: 700;
+	}
+	.qb-flow-guide i { color: #9aa8bb; }
+	@media (max-width: 767px) {
+		.qb-flow .qb-question-preview { min-width: 160px; }
+		.qb-flow .panel-heading .pull-right { display: inline-flex; align-items: center; gap: 5px; }
+	}
+</style>
 <div class="row">
 	<div class="col-md-12">
 		<?php if (is_superadmin_loggedin()): ?>
@@ -98,19 +183,28 @@
 			</header>
 			<div class="panel-body">
 				<?php if (!empty($question_flow)): ?>
-				<div class="panel-group" id="questionFlowAccordion">
+				<div class="qb-flow-guide">
+					<strong><i class="fas fa-diagram-project"></i> Question layout</strong>
+					<span>Class &amp; Section</span><i class="fas fa-chevron-right"></i>
+					<span>Subject</span><i class="fas fa-chevron-right"></i>
+					<span>Lesson</span><i class="fas fa-chevron-right"></i>
+					<span>Question type</span><i class="fas fa-chevron-right"></i>
+					<span>Exercise</span><i class="fas fa-chevron-right"></i>
+					<span>Question</span>
+				</div>
+				<div class="panel-group qb-flow" id="questionFlowAccordion">
 					<?php foreach ($question_flow as $classSection):
 						$classId = (int) $classSection['class_id'];
 						$sectionId = (int) $classSection['section_id'];
 						$classPanelId = 'question_class_' . $classId . '_' . $sectionId;
 					?>
-					<div class="panel panel-default">
+					<div class="panel panel-default qb-class-panel">
 						<div class="panel-heading collapsed" data-toggle="collapse" data-parent="#questionFlowAccordion" data-target="#<?=$classPanelId?>" role="button" style="cursor:pointer;">
 							<h5 class="panel-title" style="margin:0; font-size:14px; line-height:22px;">
-								<span class="label label-primary" title="<?=translate('class')?>"><i class="fas fa-school"></i></span>
+								<span class="qb-level-label"><i class="fas fa-school"></i> <?=translate('class')?></span>
 								<strong><?=html_escape($classSection['class_name'])?></strong>
-								<span class="text-muted">&mdash;</span>
-								<?=html_escape($classSection['section_name'])?>
+								<span class="text-muted">/</span>
+								<span><?=html_escape($classSection['section_name'])?></span>
 								<?=qi_type_count_html(isset($classSection['type_counts']) ? $classSection['type_counts'] : array(), $question_type_map)?>
 								<span class="pull-right">
 									<?php if ($can_add):
@@ -137,10 +231,10 @@
 											'subject_id' => $subjectId,
 										);
 									?>
-									<div class="panel panel-default">
+									<div class="panel panel-default qb-subject-panel">
 										<div class="panel-heading collapsed" data-toggle="collapse" data-parent="#questionSubjects_<?=$classId?>_<?=$sectionId?>" data-target="#<?=$subjectPanelId?>" role="button" style="cursor:pointer;">
 											<h5 class="panel-title" style="margin:0; font-size:13px; line-height:20px;">
-												<span class="label label-warning" title="<?=translate('subject')?>"><i class="fas fa-book"></i></span>
+												<span class="qb-level-label qb-subject-label"><i class="fas fa-book"></i> <?=translate('subject')?></span>
 												<strong><?=html_escape($subject['subject_name'])?></strong>
 												<?php if (!empty($subject['subject_group'])): ?>
 												<small class="text-muted">(<?=html_escape($subject['subject_group'])?>)</small>
@@ -169,13 +263,13 @@
 															? trim($lesson['lesson_no'] . (!empty($lesson['lesson_no']) ? '. ' : '') . $lesson['lesson_name'])
 															: translate('other');
 													?>
-													<div class="panel panel-default">
+													<div class="panel panel-default qb-lesson-panel">
 														<div class="panel-heading collapsed" data-toggle="collapse" data-parent="#questionLessons_<?=$classId?>_<?=$sectionId?>_<?=$subjectId?>" data-target="#<?=$lessonPanelId?>" role="button" style="cursor:pointer;">
 															<h6 class="panel-title" style="margin:0; font-size:12px; line-height:20px;">
 																<?php if ($lessonId > 0): ?>
-																<span class="label label-info" title="<?=translate('lesson')?>"><i class="fas fa-chalkboard"></i></span>
+																<span class="qb-level-label qb-lesson-label"><i class="fas fa-chalkboard"></i> <?=translate('lesson')?></span>
 																<?php else: ?>
-																<span class="label label-default" title="<?=translate('other')?>"><i class="fas fa-folder"></i></span>
+																<span class="qb-level-label"><i class="fas fa-folder"></i> <?=translate('other')?></span>
 																<?php endif; ?>
 																<?=html_escape($lessonTitle)?>
 																<?=qi_type_count_html(isset($lesson['type_counts']) ? $lesson['type_counts'] : array(), $question_type_map)?>
@@ -199,72 +293,102 @@
 																		$typePanelId = $lessonPanelId . '_type_' . $typeId;
 																		$typeTitle = !empty($qType['type_name']) ? $qType['type_name'] : translate('question_type');
 																	?>
-																	<div class="panel panel-default">
+																	<div class="panel panel-default qb-type-panel">
 																		<div class="panel-heading collapsed" data-toggle="collapse" data-parent="#questionTypes_<?=$classId?>_<?=$sectionId?>_<?=$subjectId?>_<?=$lessonId?>" data-target="#<?=$typePanelId?>" role="button" style="cursor:pointer;">
 																			<h6 class="panel-title" style="margin:0; font-size:12px; line-height:20px;">
-																				<span class="label label-warning" title="<?=translate('question_type')?>"><i class="fas fa-tags"></i></span>
+																				<span class="qb-level-label qb-type-label"><i class="fas fa-tags"></i> <?=translate('question_type')?></span>
 																				<?=html_escape($typeTitle)?>
 																				<span class="pull-right">
 																					<?php if ($can_add): ?>
 																					<a href="<?=base_url('onlineexam/question_add') . '?' . http_build_query($lessonParams)?>" class="btn btn-default btn-xs" title="<?=translate('add') . ' ' . translate('question')?>" onclick="event.stopPropagation();"><i class="fas fa-plus"></i></a>
 																					<?php endif; ?>
-																					<span class="label label-default" title="<?=translate('question')?>"><i class="fas fa-circle-question"></i> <?=count($qType['questions'])?></span>
+																					<span class="label label-default" title="<?=translate('question')?>"><i class="fas fa-circle-question"></i> <?=(int) $qType['question_count']?></span>
 																					<i class="fas fa-chevron-down toggle-indicator text-muted" style="margin-left:10px;"></i>
 																				</span>
 																			</h6>
 																		</div>
 																		<div id="<?=$typePanelId?>" class="accordion-body collapse">
 																			<div class="panel-body">
-																				<div class="table-responsive">
-																					<table class="table table-bordered table-condensed table-hover mb-none qi-qtable">
-																						<thead>
-																							<tr>
-																								<?php if ($can_delete): ?>
-																								<th width="36" class="text-center">
-																									<label class="i-checks mb-none"><input type="checkbox" class="qi-check-all" title="Select all"><i></i></label>
-																								</th>
-																								<?php endif; ?>
-																								<th width="45"><?=translate('sl')?></th>
-																								<th><?=translate('question')?></th>
-																								<th width="150"><?=translate('action')?></th>
-																							</tr>
-																						</thead>
-																						<tbody>
-																							<?php $sn = 1; foreach ($qType['questions'] as $question):
-																								$type = (int) $question['type'];
-																							?>
-																							<tr>
-																								<?php if ($can_delete): ?>
-																								<td class="text-center">
-																									<label class="i-checks mb-none"><input type="checkbox" class="qi-qcheck" value="<?=(int) $question['id']?>"><i></i></label>
-																								</td>
-																								<?php endif; ?>
-																								<td><?=$sn++?></td>
-																								<td>
-																									<?php
-																									if ($type === 5) {
-																										$decoded = json_decode($question['question'], true);
-																										echo is_array($decoded) && !empty($decoded['instruction'])
-																											? $decoded['instruction']
-																											: $question['question'];
-																									} else {
-																										echo $question['question'];
-																									}
-																									?>
-																								</td>
-																								<td>
-																									<button type="button" class="btn btn-circle btn-default btn-sm icon" title="<?=translate('view')?>" data-loading-text="<i class='fas fa-spinner fa-spin'></i>" onclick="getQuestion(<?=(int) $question['id']?>, this);"><i class="fas fa-bars"></i></button>
-																									<?php if ($can_edit): ?>
-																									<a href="<?=base_url('onlineexam/question_edit/' . (int) $question['id'])?>" class="btn btn-circle btn-default btn-sm" title="<?=translate('edit')?>"><i class="fas fa-pen-nib"></i></a>
+																				<div class="panel-group" id="questionExercises_<?=$classId?>_<?=$sectionId?>_<?=$subjectId?>_<?=$lessonId?>_<?=$typeId?>">
+																					<?php foreach ($qType['exercises'] as $exercise):
+																						$exerciseId = (int) $exercise['exercise_id'];
+																						$exercisePanelId = $typePanelId . '_exercise_' . $exerciseId;
+																						$exerciseParams = $lessonParams;
+																						if ($exerciseId > 0) {
+																							$exerciseParams['exercise_id'] = $exerciseId;
+																						}
+																					?>
+																					<div class="panel panel-default qb-exercise-panel">
+																						<div class="panel-heading collapsed" data-toggle="collapse" data-parent="#questionExercises_<?=$classId?>_<?=$sectionId?>_<?=$subjectId?>_<?=$lessonId?>_<?=$typeId?>" data-target="#<?=$exercisePanelId?>" role="button" style="cursor:pointer;">
+																							<h6 class="panel-title" style="margin:0; font-size:12px; line-height:20px;">
+																								<span class="qb-level-label qb-exercise-label"><i class="fas fa-list-ol"></i> <?=translate('exercise')?></span>
+																								<strong><?=html_escape($exercise['exercise_name'])?></strong>
+																								<span class="pull-right">
+																									<?php if ($can_add): ?>
+																									<a href="<?=base_url('onlineexam/question_add') . '?' . http_build_query($exerciseParams)?>" class="btn btn-default btn-xs" title="<?=translate('add') . ' ' . translate('question')?>" onclick="event.stopPropagation();"><i class="fas fa-plus"></i></a>
 																									<?php endif; ?>
-																									<?php if ($can_delete): ?>
-																									<?=btn_delete('onlineexam/question_delete/' . (int) $question['id'])?>
-																									<?php endif; ?>
-																								</td>
-																							</tr>
-																							<?php endforeach; ?>
-																						</tbody>
-																					</table>
+																									<span class="label label-info" title="<?=translate('question')?>"><i class="fas fa-circle-question"></i> <?=(int) $exercise['question_count']?></span>
+																									<i class="fas fa-chevron-down toggle-indicator text-muted" style="margin-left:10px;"></i>
+																								</span>
+																							</h6>
+																						</div>
+																						<div id="<?=$exercisePanelId?>" class="accordion-body collapse">
+																							<div class="panel-body">
+																								<div class="table-responsive">
+																									<table class="table table-bordered table-condensed table-hover mb-none qi-qtable qb-qtable">
+																										<thead>
+																											<tr>
+																												<?php if ($can_delete): ?>
+																												<th width="36" class="text-center">
+																													<label class="i-checks mb-none"><input type="checkbox" class="qi-check-all" title="Select all"><i></i></label>
+																												</th>
+																												<?php endif; ?>
+																												<th width="45"><?=translate('sl')?></th>
+																												<th><?=translate('question')?></th>
+																												<th width="150"><?=translate('action')?></th>
+																											</tr>
+																										</thead>
+																										<tbody>
+																											<?php $sn = 1; foreach ($exercise['questions'] as $question):
+																												$type = (int) $question['type'];
+																											?>
+																											<tr>
+																												<?php if ($can_delete): ?>
+																												<td class="text-center">
+																													<label class="i-checks mb-none"><input type="checkbox" class="qi-qcheck" value="<?=(int) $question['id']?>"><i></i></label>
+																												</td>
+																												<?php endif; ?>
+																												<td><?=$sn++?></td>
+																												<td class="qb-question-preview">
+																													<?php
+																													if ($type === 5) {
+																														$decoded = json_decode($question['question'], true);
+																														echo is_array($decoded) && !empty($decoded['instruction'])
+																															? $decoded['instruction']
+																															: $question['question'];
+																													} else {
+																														echo $question['question'];
+																													}
+																													?>
+																												</td>
+																												<td>
+																													<button type="button" class="btn btn-circle btn-default btn-sm icon" title="<?=translate('view')?>" data-loading-text="<i class='fas fa-spinner fa-spin'></i>" onclick="getQuestion(<?=(int) $question['id']?>, this);"><i class="fas fa-bars"></i></button>
+																													<?php if ($can_edit): ?>
+																													<a href="<?=base_url('onlineexam/question_edit/' . (int) $question['id'])?>" class="btn btn-circle btn-default btn-sm" title="<?=translate('edit')?>"><i class="fas fa-pen-nib"></i></a>
+																													<?php endif; ?>
+																													<?php if ($can_delete): ?>
+																													<?=btn_delete('onlineexam/question_delete/' . (int) $question['id'])?>
+																													<?php endif; ?>
+																												</td>
+																											</tr>
+																											<?php endforeach; ?>
+																										</tbody>
+																									</table>
+																								</div>
+																							</div>
+																						</div>
+																					</div>
+																					<?php endforeach; ?>
 																				</div>
 																			</div>
 																		</div>

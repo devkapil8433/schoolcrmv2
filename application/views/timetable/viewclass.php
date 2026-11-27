@@ -268,8 +268,13 @@ if ($weekendRaw !== '' && $weekendRaw !== null) {
 									echo '<div class="swr-tt-cell-inner">';
 									echo '<div class="swr-tt-cell-body">';
 									if ($isBreak) {
-										echo '<span class="tt-p-break">BREAK</span>';
+										$breakMarker = strtoupper(trim((string) $timetable->class_room));
+										$breakLabel = in_array($breakMarker, array('DIARY CHECK', 'LUNCH'), true) ? $breakMarker : 'BREAK';
+										echo '<span class="tt-p-break">' . html_escape($breakLabel) . '</span>';
 										echo '<span class="tt-p-time">' . html_escape($tStart) . ' – ' . html_escape($tEnd) . '</span>';
+										if ($breakLabel === 'DIARY CHECK' && !empty($timetable->teacher_id)) {
+											echo '<span class="tt-p-meta">' . html_escape(get_type_name_by_id('staff', $timetable->teacher_id)) . '</span>';
+										}
 									} else {
 										echo '<span class="tt-p-subject">' . html_escape(get_type_name_by_id('subject', $timetable->subject_id)) . '</span>';
 										echo '<span class="tt-p-time">' . html_escape($tStart) . ' – ' . html_escape($tEnd) . '</span>';

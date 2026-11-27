@@ -1,0 +1,28 @@
+.custom-search-card {
+        border: none;
+        border-radius: 8px;
+        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+        background-color: #fff;
+        padding: 30px;
+        margin: 30px auto;
+        max-width: 1040px; /* Adjust width */
+    }
+
+    .custom-search-card h5 {
+        font-weight: 600;
+        margin-bottom: 20px;
+    }
+
+    .custom-search-card .btn-dark {
+        width: 100%;
+    }
+    .col-md-4{
+        margin-top:27px;
+        margin-left: -115px;
+    }
+
+    @media (min-width: 576px) {
+        .custom-search-card .btn-dark {
+            width: auto;
+        }
+    }

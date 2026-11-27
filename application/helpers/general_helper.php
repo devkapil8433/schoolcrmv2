@@ -299,6 +299,35 @@ function get_loggedin_user_type()
     return $CI->session->userdata('loggedin_type');
 }
 
+// html label for a computed subscription state
+function subscription_badge($state)
+{
+    $map = array(
+        'active' => array('label-success-custom', 'Active'),
+        'grace' => array('label-warning-custom', 'Grace Period'),
+        'expired' => array('label-danger-custom', 'Expired'),
+        'suspended' => array('label-danger-custom', 'Suspended'),
+        'none' => array('label-default', 'No Subscription'),
+    );
+    $m = isset($map[$state]) ? $map[$state] : $map['none'];
+    return '<span class="label ' . $m[0] . '">' . $m[1] . '</span>';
+}
+
+// renewal warning shown to School/Branch admins (set by Access_guard)
+function get_subscription_notice()
+{
+    $CI = &get_instance();
+    return isset($CI->data['subscription_notice']) ? $CI->data['subscription_notice'] : '';
+}
+
+// other accounts signed in on this browser (account switcher)
+function get_linked_accounts()
+{
+    $CI = &get_instance();
+    $linked = $CI->session->userdata('linked_accounts');
+    return is_array($linked) ? $linked : array();
+}
+
 // get logged in user type
 function get_loggedin_branch_id()
 {
@@ -597,6 +626,53 @@ function currencyFormat($amount = 0)
         $value = $value . " " . $currency;
     }
     return $value;
+}
+
+function amountToWords($amount = 0)
+{
+    $amountParts = explode('.', number_format(abs((float) $amount), 2, '.', ''));
+    $rupees = (int) $amountParts[0];
+    $paise = (int) $amountParts[1];
+    $ones = array(
+        'zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven',
+        'eight', 'nine', 'ten', 'eleven', 'twelve', 'thirteen', 'fourteen',
+        'fifteen', 'sixteen', 'seventeen', 'eighteen', 'nineteen',
+    );
+    $tens = array(
+        2 => 'twenty', 3 => 'thirty', 4 => 'forty', 5 => 'fifty',
+        6 => 'sixty', 7 => 'seventy', 8 => 'eighty', 9 => 'ninety',
+    );
+    $toWords = function ($number) use (&$toWords, $ones, $tens) {
+        $number = (int) $number;
+        if ($number < 20) {
+            return $ones[$number];
+        }
+        if ($number < 100) {
+            $word = $tens[(int) floor($number / 10)];
+            $remainder = $number % 10;
+            return $word . ($remainder ? ' ' . $ones[$remainder] : '');
+        }
+        foreach (array(
+            10000000 => 'crore',
+            100000 => 'lakh',
+            1000 => 'thousand',
+            100 => 'hundred',
+        ) as $value => $unit) {
+            if ($number >= $value) {
+                $quotient = (int) floor($number / $value);
+                $remainder = $number % $value;
+                return $toWords($quotient) . ' ' . $unit
+                    . ($remainder ? ' ' . $toWords($remainder) : '');
+            }
+        }
+        return '';
+    };
+
+    $words = $toWords($rupees) . ' rupees';
+    if ($paise > 0) {
+        $words .= ' and ' . $toWords($paise) . ' paise';
+    }
+    return ucfirst($words);
 }
 
 function moneyFormatIndia($num)

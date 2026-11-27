@@ -25,7 +25,7 @@
 						<div class="form-group">
 							<label class="control-label"><?= translate('class') ?></label>
 							<?php
-							$arrayClass = $this->app_lib->getClass($branch_id);
+							$arrayClass = is_teacher_loggedin() ? $this->app_lib->get_class_teacher_class_options($branch_id) : $this->app_lib->getClass($branch_id);
 							echo form_dropdown("class_id", $arrayClass, set_value('class_id'), "class='form-control' id='class_id' onchange='getSectionByClass(this.value)'
 								data-plugin-selectTwo data-width='100%'");
 							?>
@@ -36,7 +36,7 @@
 						<div class="form-group">
 							<label class="control-label"><?= translate('section') ?></label>
 							<?php
-							$arraySection = $this->app_lib->getSections(set_value('class_id'));
+							$arraySection = is_teacher_loggedin() ? $this->app_lib->get_class_teacher_section_options(set_value('class_id')) : $this->app_lib->getSections(set_value('class_id'));
 							echo form_dropdown("section_id", $arraySection, set_value('section_id'), "class='form-control' id='section_id'
 								data-plugin-selectTwo data-width='100%'");
 							?>
@@ -57,7 +57,7 @@
 
 		<section class="panel appear-animation hidden-div" data-appear-animation="<?= $global_config['animations'] ?>" data-appear-animation-delay="100">
 			<header class="panel-heading">
-				<?php if (get_permission('student', 'is_delete')): ?>
+				<?php if (!is_teacher_loggedin() && get_permission('student', 'is_delete')): ?>
 					<div class="panel-btn">
 						<button class="btn btn-default btn-circle" id="student_bulk_delete" data-loading-text="<i class='fas fa-spinner fa-spin'></i> Processing">
 							<i class="fas fa-trash-alt"></i> <?= translate('bulk_delete') ?>
@@ -71,11 +71,13 @@
 				<table class="table table-bordered table-condensed table-hover table-export" id="studentTable" width="100%">
 					<thead>
 						<tr>
+							<?php if (!is_teacher_loggedin()): ?>
 							<th width="10" class="no-sort no-export">
 								<div class="checkbox-replace">
 									<label class="i-checks"><input type="checkbox" id="selectAllchkbox"><i></i></label>
 								</div>
 							</th>
+							<?php endif; ?>
 							<th class="no-sort"><?= translate('photo') ?></th>
 							<th><?= translate('name') ?></th>
 							<th><?= translate('class') ?></th>
@@ -95,7 +97,9 @@
 							<?php }
 							} ?>
 							<th class="no-sort no-export"><?= translate('fees_progress') ?></th>
+							<?php if (!is_teacher_loggedin()): ?>
 							<th><?= translate('action') ?></th>
+							<?php endif; ?>
 						</tr>
 					</thead>
 				</table>
@@ -200,17 +204,21 @@
 						}
 						$(".export_title").html(data.export_title);
 						$("#studentTable").html(data.thead);
-						cusDataTable = initDatatable("#studentTable", "student/getStudentListDT", data.filter, 25, true, false, [{
+						var columnDefs = [{
 							"orderable": false,
 							"targets": 'no-sort'
 						}, {
 							"class": 'center',
-							"targets": 1
-						}, {
+							"targets": <?php echo is_teacher_loggedin() ? 0 : 1; ?>
+						}];
+						<?php if (!is_teacher_loggedin()): ?>
+						columnDefs.push({
 							"orderable": false,
 							"targets": [-1],
 							'class': 'action'
-						}]);
+						});
+						<?php endif; ?>
+						cusDataTable = initDatatable("#studentTable", "student/getStudentListDT", data.filter, 25, true, false, columnDefs);
 						$(".panel.hidden-div").show();
 					}
 				},
@@ -222,7 +230,7 @@
 				}
 			});
 		});
-		<?php if (get_permission('student', 'is_delete')): ?>
+		<?php if (!is_teacher_loggedin() && get_permission('student', 'is_delete')): ?>
 			// $('#student_bulk_delete').on('click', function() {
 
 			// 	var btn = $(this);

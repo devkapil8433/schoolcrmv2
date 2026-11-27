@@ -452,7 +452,23 @@ class Onlineexam extends Admin_Controller
                 if (!$found) {
                     $extraLesson = $this->app_lib->getTable('digital_diary_lesson', array('t.id' => $prefillLessonId), true);
                     if (!empty($extraLesson)) {
-                        $this->data['digital_diary_lessons'][] = $extraLesson;
+                        $matchedLessonId = 0;
+                        if ((int) $extraLesson['class_id'] === $classId
+                            && (int) $extraLesson['section_id'] === $sectionId
+                            && (int) $extraLesson['subject_id'] === $subjectId) {
+                            foreach ($this->data['digital_diary_lessons'] as $lessonRow) {
+                                if (trim((string) $lessonRow['lesson_no']) === trim((string) $extraLesson['lesson_no'])
+                                    && trim((string) $lessonRow['lesson_name']) === trim((string) $extraLesson['lesson_name'])) {
+                                    $matchedLessonId = (int) $lessonRow['id'];
+                                    break;
+                                }
+                            }
+                        }
+                        if ($matchedLessonId > 0) {
+                            $this->data['prefill_lesson_id'] = $matchedLessonId;
+                        } else {
+                            $this->data['digital_diary_lessons'][] = $extraLesson;
+                        }
                     }
                 }
             }
@@ -1384,6 +1400,12 @@ class Onlineexam extends Admin_Controller
             access_denied();
         }
         $branchID = $this->application_model->get_branch_id();
+        if (empty($branchID)) {
+            $branchID = (int) $this->input->get('branch_id');
+        }
+        if (empty($branchID)) {
+            $branchID = (int) get_loggedin_branch_id();
+        }
         $this->data['title'] = translate('question') . " " . translate('import');
         $this->data['branch_id'] = $branchID;
         $this->data['sub_page'] = 'onlineexam/question_import';
@@ -1396,7 +1418,96 @@ class Onlineexam extends Admin_Controller
                 'vendor/dropify/js/dropify.min.js',
             ),
         );
+
+        // Load lessons grouped by class|section|subject for client-side filtering.
+        // Class/section/subject IDs are branch-specific, so loading all branches is safe
+        // and keeps the map correct when a superadmin switches the branch dropdown.
+        $this->data['all_lessons'] = array();
+        if ($this->db->table_exists('digital_diary_lesson')) {
+            $rows = $this->db->select('id, class_id, section_id, subject_id, branch_id, lesson_no, lesson_name')
+                ->from('digital_diary_lesson')
+                ->get()
+                ->result_array();
+            usort($rows, function ($a, $b) {
+                $na = (int) $a['lesson_no'];
+                $nb = (int) $b['lesson_no'];
+                if ($na !== $nb) {
+                    return $na - $nb;
+                }
+                if ($a['lesson_no'] !== $b['lesson_no']) {
+                    return strcmp($a['lesson_no'], $b['lesson_no']);
+                }
+                return (int) $a['id'] - (int) $b['id'];
+            });
+            $seen = array();
+            foreach ($rows as $row) {
+                $key = (int) $row['class_id'] . '|' . (int) $row['section_id'] . '|' . (int) $row['subject_id'];
+                $label = trim(($row['lesson_no'] !== '' && $row['lesson_no'] !== null ? $row['lesson_no'] . '. ' : '') . $row['lesson_name']);
+                $dedupe = trim($row['lesson_no']) . '|' . trim($row['lesson_name']);
+                $ownBranch = ((int) $row['branch_id'] !== 0);
+                if (isset($seen[$key][$dedupe])) {
+                    // Duplicate lesson copied across branches: prefer the real branch row over legacy branch_id=0
+                    if ($ownBranch && !$seen[$key][$dedupe]['own']) {
+                        $idx = $seen[$key][$dedupe]['idx'];
+                        $this->data['all_lessons'][$key][$idx] = array('id' => (int) $row['id'], 'label' => $label);
+                        $seen[$key][$dedupe]['own'] = true;
+                    }
+                    continue;
+                }
+                if (!isset($this->data['all_lessons'][$key])) {
+                    $this->data['all_lessons'][$key] = array();
+                }
+                $this->data['all_lessons'][$key][] = array('id' => (int) $row['id'], 'label' => $label);
+                $seen[$key][$dedupe] = array('idx' => count($this->data['all_lessons'][$key]) - 1, 'own' => $ownBranch);
+            }
+        }
+
         $this->load->view('layout/index', $this->data);
+    }
+
+    /* AJAX: lesson <option> list for the question import form (class/section/subject context) */
+    public function getLessonsBySubject()
+    {
+        if (!get_permission('question_bank', 'is_add')) {
+            ajax_access_denied();
+        }
+        $classID = (int) $this->input->post('classID');
+        $sectionID = (int) $this->input->post('sectionID');
+        $subjectID = (int) $this->input->post('subjectID');
+        $branchID = is_superadmin_loggedin()
+            ? (int) $this->input->post('branch_id')
+            : (int) get_loggedin_branch_id();
+        if (empty($branchID)) {
+            $branchID = (int) $this->application_model->get_branch_id();
+        }
+
+        $html = '<option value="">' . translate('select') . ' (' . translate('lesson') . ')</option>';
+        if ($classID > 0 && $sectionID > 0 && $subjectID > 0 && $branchID > 0 && $this->db->table_exists('digital_diary_lesson')) {
+            $this->db->select('id, lesson_no, lesson_name');
+            $this->db->from('digital_diary_lesson');
+            $this->db->where('class_id', $classID);
+            $this->db->where('section_id', $sectionID);
+            $this->db->where('subject_id', $subjectID);
+            $this->db->group_start();
+            $this->db->where('branch_id', $branchID);
+            $this->db->or_where('branch_id', 0);
+            $this->db->group_end();
+            if ($this->db->field_exists('sort_order', 'digital_diary_lesson')) {
+                $this->db->order_by('sort_order', 'ASC');
+            }
+            $this->db->order_by('lesson_no', 'ASC');
+            $this->db->order_by('id', 'ASC');
+            $lessons = $this->db->get()->result_array();
+            if (empty($lessons)) {
+                $html = '<option value="">No lessons found for this subject</option>';
+            } else {
+                foreach ($lessons as $lesson) {
+                    $label = trim(($lesson['lesson_no'] !== '' && $lesson['lesson_no'] !== null ? $lesson['lesson_no'] . '. ' : '') . $lesson['lesson_name']);
+                    $html .= '<option value="' . (int) $lesson['id'] . '">' . html_escape($label) . '</option>';
+                }
+            }
+        }
+        echo $html;
     }
 
     /* csv file to import question stored in the database here */
@@ -1429,17 +1540,45 @@ class Onlineexam extends Admin_Controller
                 $classID = (int) $this->input->post('class_id');
                 $sectionID = (int) $this->input->post('section_id');
                 $subjectID = (int) $this->input->post('subject_id');
+                $formLessonID = (int) $this->input->post('lesson_id');
+                if ($formLessonID > 0) {
+                    $lessonRow = $this->db->select('id')
+                        ->from('digital_diary_lesson')
+                        ->where('id', $formLessonID)
+                        ->group_start()
+                            ->where('branch_id', $branchID)
+                            ->or_where('branch_id', 0)
+                        ->group_end()
+                        ->where('class_id', $classID)
+                        ->where('section_id', $sectionID)
+                        ->where('subject_id', $subjectID)
+                        ->get()
+                        ->row_array();
+                    if (empty($lessonRow)) {
+                        $formLessonID = 0;
+                    }
+                }
+                $this->ensureQuestionsLessonIdColumn();
+                $this->ensureQuestionsExplanationColumn();
+                $this->ensureQuestionsExerciseIdNullable();
                 $createdBy = (int) get_loggedin_user_id();
                 $questionsExam = array();
                 $skipped = 0;
                 if (isset($_FILES["userfile"]) && !empty($_FILES['userfile']['name']) && $_FILES["userfile"]["size"] > 0) {
                     $fileName = $_FILES["userfile"]["tmp_name"];
                     $file = fopen($fileName, "r");
+                    $headerMap = array();
                     $isHeader = true;
                     $count = 0;
                     while (($column = fgetcsv($file, 10000, ",")) !== false) {
                         if ($isHeader) {
                             $isHeader = false;
+                            foreach ($column as $index => $header) {
+                                $header = strtolower(trim(preg_replace('/^\xEF\xBB\xBF/', '', (string) $header)));
+                                if ($header !== '') {
+                                    $headerMap[$header] = $index;
+                                }
+                            }
                             continue;
                         }
                         // Skip fully empty rows
@@ -1447,7 +1586,7 @@ class Onlineexam extends Admin_Controller
                         if ($joined === '') {
                             continue;
                         }
-                        $parsed = $this->parseImportQuestionRow($column, $branchID, $classID, $sectionID, $subjectID, $createdBy);
+                        $parsed = $this->parseImportQuestionRow($column, $branchID, $classID, $sectionID, $subjectID, $createdBy, $headerMap, $formLessonID);
                         if ($parsed === null) {
                             $skipped++;
                             continue;
@@ -1463,14 +1602,14 @@ class Onlineexam extends Admin_Controller
                         $url = base_url('onlineexam/question_import');
                         $msg = 'No valid questions found.';
                         if ($skipped > 0) {
-                            $msg .= ' (' . $skipped . ' row(s) skipped — check type / required fields.)';
+                            $msg .= ' (' . $skipped . ' row(s) skipped — check question fields and confirm lesson/exercise names or IDs belong to the selected class and subject.)';
                         }
                         set_alert('error', $msg);
                     } else {
                         $url = base_url('onlineexam/question');
                         $msg = $count . ' question(s) imported successfully.';
                         if ($skipped > 0) {
-                            $msg .= ' ' . $skipped . ' row(s) skipped.';
+                            $msg .= ' ' . $skipped . ' row(s) skipped — check required fields and lesson/exercise values.';
                         }
                         set_alert('success', $msg);
                     }
@@ -1516,28 +1655,49 @@ class Onlineexam extends Admin_Controller
     /**
      * Parse one CSV data row into a questions table insert array, or null if invalid.
      *
-     * Columns: type, exercise_id (optional), level, question, mark, option_1, option_2, option_3, option_4, answer
+     * Columns: lesson_no (optional), lesson (optional), question_type, exercise (optional), question_level, question,
+     * mark, option_1, option_2, option_3, option_4, answer, explanation (optional)
      * Match options use Left|Right in option_1..4; answer like 1-1,2-2,3-3,4-4
-     * Prefer lesson_id + type when feeding bank for papers and AS/Learning work.
+     * Lesson number is matched within the selected class/section/subject. Lesson and exercise values may be IDs or exact names.
+     * When the import form's Lesson dropdown is selected, every row attaches to that lesson; a CSV
+     * lesson_no/lesson value, if present, must match the same lesson or the row is skipped.
      */
-    protected function parseImportQuestionRow(array $column, $branchID, $classID, $sectionID, $subjectID, $createdBy)
+    protected function parseImportQuestionRow(array $column, $branchID, $classID, $sectionID, $subjectID, $createdBy, $headerMap = array(), $formLessonID = 0)
     {
-        $typeSlug = strtolower(trim(isset($column[0]) ? $column[0] : ''));
-        $exerciseId = (int) trim(isset($column[1]) ? $column[1] : '');
-        $levelSlug = strtolower(trim(isset($column[2]) ? $column[2] : ''));
-        $questionText = trim(isset($column[3]) ? $column[3] : '');
-        $mark = trim(isset($column[4]) ? $column[4] : '');
-        $opt1 = trim(isset($column[5]) ? $column[5] : '');
-        $opt2 = trim(isset($column[6]) ? $column[6] : '');
-        $opt3 = trim(isset($column[7]) ? $column[7] : '');
-        $opt4 = trim(isset($column[8]) ? $column[8] : '');
-        $answerRaw = trim(isset($column[9]) ? $column[9] : '');
+        $lessonNo = trim($this->getImportQuestionColumn($column, $headerMap, array('lesson_no', 'lesson_number'), -1));
+        $typeSlug = strtolower(trim($this->getImportQuestionColumn($column, $headerMap, array('question_type', 'type'), 0)));
+        $lessonValue = trim($this->getImportQuestionColumn($column, $headerMap, array('lesson', 'lesson_id'), -1));
+        $exerciseValue = trim($this->getImportQuestionColumn($column, $headerMap, array('exercise', 'exercise_id'), 1));
+        $levelSlug = strtolower(trim($this->getImportQuestionColumn($column, $headerMap, array('question_level', 'level'), 2)));
+        $questionText = trim($this->getImportQuestionColumn($column, $headerMap, array('question'), 3));
+        $mark = trim($this->getImportQuestionColumn($column, $headerMap, array('mark', 'marks'), 4));
+        $opt1 = trim($this->getImportQuestionColumn($column, $headerMap, array('option_1', 'option1'), 5));
+        $opt2 = trim($this->getImportQuestionColumn($column, $headerMap, array('option_2', 'option2'), 6));
+        $opt3 = trim($this->getImportQuestionColumn($column, $headerMap, array('option_3', 'option3'), 7));
+        $opt4 = trim($this->getImportQuestionColumn($column, $headerMap, array('option_4', 'option4'), 8));
+        $answerRaw = trim($this->getImportQuestionColumn($column, $headerMap, array('answer'), 9));
+        $explanation = trim($this->getImportQuestionColumn($column, $headerMap, array('explanation'), 10));
 
         if ($typeSlug === '' || $questionText === '') {
             return null;
         }
-        if ($exerciseId < 1) {
-            $exerciseId = null;
+        if ($formLessonID > 0) {
+            $lessonId = $formLessonID;
+            if ($lessonNo !== '' || $lessonValue !== '') {
+                $csvLessonId = $this->resolveImportQuestionLesson($lessonNo, $lessonValue, $branchID, $classID, $sectionID, $subjectID);
+                if ($csvLessonId === null || $csvLessonId !== $formLessonID) {
+                    return null;
+                }
+            }
+        } else {
+            $lessonId = $this->resolveImportQuestionLesson($lessonNo, $lessonValue, $branchID, $classID, $sectionID, $subjectID);
+            if (($lessonNo !== '' || $lessonValue !== '') && $lessonId === null) {
+                return null;
+            }
+        }
+        $exerciseId = $this->resolveImportQuestionExercise($exerciseValue, $branchID, $classID, $subjectID);
+        if ($exerciseValue !== '' && $exerciseId === null) {
+            return null;
         }
 
         $typeMap = $this->importQuestionTypeMap();
@@ -1651,9 +1811,10 @@ class Onlineexam extends Admin_Controller
             'section_id' => (int) $sectionID,
             'subject_id' => (int) $subjectID,
             'branch_id' => (int) $branchID,
+            'lesson_id' => $lessonId,
             'type' => $questionType,
             'level' => $questionLevel,
-            'exercise_id' => $exerciseId > 0 ? $exerciseId : null,
+            'exercise_id' => $exerciseId,
             'question' => $questionText,
             'mark' => $mark,
             'opt_1' => $opt1,
@@ -1661,6 +1822,7 @@ class Onlineexam extends Admin_Controller
             'opt_3' => $opt3,
             'opt_4' => $opt4,
             'answer' => $answer,
+            'explanation' => $explanation !== '' ? htmlspecialchars($explanation, ENT_QUOTES, 'UTF-8') : null,
             'created_by' => (int) $createdBy,
         );
         // Same keys on every row (required for insert_batch)
@@ -1668,6 +1830,65 @@ class Onlineexam extends Admin_Controller
             $row['custom_question_type'] = $customType !== null ? $customType : null;
         }
         return $row;
+    }
+
+    protected function getImportQuestionColumn(array $column, array $headerMap, array $aliases, $legacyIndex)
+    {
+        foreach ($aliases as $alias) {
+            if (isset($headerMap[$alias])) {
+                return isset($column[$headerMap[$alias]]) ? (string) $column[$headerMap[$alias]] : '';
+            }
+        }
+        return $legacyIndex >= 0 && isset($column[$legacyIndex]) ? (string) $column[$legacyIndex] : '';
+    }
+
+    protected function resolveImportQuestionLesson($lessonNo, $value, $branchID, $classID, $sectionID, $subjectID)
+    {
+        if ($lessonNo === '' && $value === '') {
+            return null;
+        }
+        if (!$this->db->table_exists('digital_diary_lesson')) {
+            return null;
+        }
+        $this->db->from('digital_diary_lesson');
+        $this->db->group_start()
+            ->where('branch_id', (int) $branchID)
+            ->or_where('branch_id', 0)
+        ->group_end();
+        $this->db->where('class_id', (int) $classID);
+        $this->db->where('section_id', (int) $sectionID);
+        $this->db->where('subject_id', (int) $subjectID);
+        if ($lessonNo !== '') {
+            $this->db->where('lesson_no', $lessonNo);
+        }
+        if ($value !== '') {
+            if (ctype_digit($value)) {
+                $this->db->where('id', (int) $value);
+            } else {
+                $this->db->where('lesson_name', $value);
+            }
+        }
+        $this->db->order_by('branch_id', 'DESC');
+        $lesson = $this->db->select('id')->get()->row_array();
+        return !empty($lesson) ? (int) $lesson['id'] : null;
+    }
+
+    protected function resolveImportQuestionExercise($value, $branchID, $classID, $subjectID)
+    {
+        if ($value === '') {
+            return null;
+        }
+        $this->db->from('exercise');
+        $this->db->where('branch_id', (int) $branchID);
+        $this->db->where('class_id', (int) $classID);
+        $this->db->where('subject_id', (int) $subjectID);
+        if (ctype_digit($value)) {
+            $this->db->where('id', (int) $value);
+        } else {
+            $this->db->where('name', $value);
+        }
+        $exercise = $this->db->select('id')->get()->row_array();
+        return !empty($exercise) ? (int) $exercise['id'] : null;
     }
 
     /* Question Type - list/manage question types */
@@ -1971,6 +2192,19 @@ class Onlineexam extends Admin_Controller
             return;
         }
         $this->db->query("ALTER TABLE `questions` ADD COLUMN `lesson_id` int(11) DEFAULT NULL AFTER `subject_id`");
+    }
+
+    protected function ensureQuestionsExplanationColumn()
+    {
+        if ($this->db->field_exists('explanation', 'questions')) {
+            return;
+        }
+        $this->dbforge->add_column('questions', array(
+            'explanation' => array(
+                'type' => 'LONGTEXT',
+                'null' => true,
+            ),
+        ));
     }
 
     /**

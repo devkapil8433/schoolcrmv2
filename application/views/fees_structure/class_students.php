@@ -22,6 +22,11 @@
         padding-left: 12px;
     }
 
+    .fee-structure-table {
+        width: max-content;
+        min-width: 100%;
+    }
+
     .rotate {
         transform: rotate(180deg);
         transition: 0.2s ease;
@@ -42,7 +47,12 @@
 
 <section class="panel">
     <header class="panel-heading">
-        <h4 class="panel-title">Fee Structure</h4>
+        <h4 class="panel-title">
+            Fee Structure
+            <a href="<?= base_url('fees_structure/fees_structure?branch_id=' . urlencode($branch_id)) ?>" class="btn btn-default btn-xs pull-right">
+                <i class="fas fa-arrow-left"></i> Back to Classes
+            </a>
+        </h4>
     </header>
 
     <div class="panel-body">
@@ -69,10 +79,7 @@
 
                         <th>Transport Fee</th>
 
-                        <?php foreach ($groupedSets as $setName => $setGroup): ?>
-                            <th><?= $setName ?></th>
-                        <?php endforeach; ?>
-
+                        <th>Materials</th>
                         <th>Total</th>
                     </tr>
                 </thead>
@@ -80,7 +87,7 @@
                     <?php foreach ($students as $student): ?>
 
                         <tr>
-                            <td><?= $student['first_name'] . ' ' . $student['last_name'] ?></td>
+                            <td><?= html_escape($student['first_name'] . ' ' . $student['last_name']) ?></td>
 
                             <?php
                             // SAME class fees
@@ -146,18 +153,11 @@
                             ?>
                             <td><?= $transport ?></td>
 
-                            <!-- Sets -->
-                            <?php foreach ($groupedSets as $setName => $setGroup): ?>
-                                <?php
-                                $groupTotal = 0;
-                                foreach ($setGroup as $set) {
-                                    $key = 'set_' . $set['id'];
-                                    $groupTotal += $classSetTotals[$student['class_id']][$key]['amount'] ?? 0;
-                                }
-                                if ($groupTotal > 0) $rowTotal += $groupTotal;
-                                ?>
-                                <td><?= $groupTotal > 0 ? number_format($groupTotal, 2) : '-' ?></td>
-                            <?php endforeach; ?>
+                            <?php
+                            $materialAmount = (float) ($student_material_totals[$student['id']]['assigned'] ?? 0);
+                            $rowTotal += $materialAmount;
+                            ?>
+                            <td><?= $materialAmount > 0 ? number_format($materialAmount, 2) : '-' ?></td>
 
                             <td><strong><?= number_format($rowTotal, 2) ?></strong></td>
                         </tr>
@@ -174,60 +174,6 @@
 
     </div>
 </section>
-<script>
-    $(document).ready(function() {
-
-        const multiplierMap = {
-            'monthly': 1,
-            'quarterly': 3,
-            'half-yearly': 6,
-            'annually': 12
-        };
-
-        $('input[name="fee_type"]').on('change', function() {
-            recalculate($(this).val());
-        });
-
-        function recalculate(type) {
-
-            let multiplier = multiplierMap[type] || 1;
-
-            $('tbody tr').each(function() {
-
-                let rowTotal = 0;
-
-                // normal + transport fees
-                $(this).find('td.fee-cell').each(function() {
-
-                    if (!$(this).data('base')) return;
-
-                    let base = parseFloat($(this).data('base'));
-                    let value = base * multiplier;
-
-                    $(this).text(value);
-                    rowTotal += value;
-                });
-
-                // set fees
-                $(this).find('.set-fee').each(function() {
-
-                    let base = parseFloat($(this).data('base')) || 0;
-                    let value = base * multiplier;
-
-                    $(this).text(value.toFixed(2));
-                    rowTotal += value;
-                });
-
-                $(this).find('.row-total').text(rowTotal.toFixed(2));
-            });
-        }
-
-        // default load
-        recalculate('monthly');
-
-    });
-</script>
-
 <script>
     $(document).on('click', '.fee-toggle', function() {
 

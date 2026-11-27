@@ -1037,7 +1037,7 @@ class Digital_diary extends Admin_Controller
     }
 
     /**
-     * Class list visible to the current user (teachers: assigned classes only when restricted).
+     * Class list visible to the current user; teacher classes are limited to class-teacher allocations.
      *
      * @return array<int,string>
      */
@@ -1048,17 +1048,12 @@ class Digital_diary extends Admin_Controller
         if (!is_teacher_loggedin()) {
             return $classes;
         }
-        $assigned = $this->app_lib->get_ownClassSection();
-        if ($assigned === false) {
-            return $classes;
-        }
+        $assigned = $this->app_lib->get_class_teacher_sections($branchID);
         $out = array();
-        if (is_array($assigned)) {
-            foreach ($assigned as $cid => $secs) {
-                $cid = (int) $cid;
-                if ($cid > 0) {
-                    $out[$cid] = get_type_name_by_id('class', $cid);
-                }
+        foreach ($assigned as $cid => $secs) {
+            $cid = (int) $cid;
+            if ($cid > 0) {
+                $out[$cid] = get_type_name_by_id('class', $cid);
             }
         }
         return $out;
@@ -1067,29 +1062,8 @@ class Digital_diary extends Admin_Controller
     protected function digital_diary_populate_class_section_filters($branchID, $classID = 0)
     {
         if (is_teacher_loggedin()) {
-            $assigned = $this->app_lib->get_ownClassSection();
-            $classOptions = array('' => translate('select'));
-            if (is_array($assigned) && !empty($assigned)) {
-                foreach ($assigned as $classKey => $sections) {
-                    $classOptions[$classKey] = get_type_name_by_id('class', $classKey);
-                }
-            }
-            if (count($classOptions) <= 1 && !empty($branchID)) {
-                $classOptions = $this->app_lib->getClass($branchID);
-            }
-            $this->data['class_options'] = $classOptions;
-            $restricted = is_array($assigned) && !empty($assigned);
-            $section_options = array('' => translate('select'));
-            if ($restricted && !empty($classID) && isset($assigned[$classID])) {
-                foreach ($assigned[$classID] as $sid) {
-                    $section_options[$sid] = get_type_name_by_id('section', $sid);
-                }
-            } elseif (!empty($classID)) {
-                $section_options = $this->app_lib->getSections($classID, false);
-            } else {
-                $section_options = array('' => translate('select_class_first'));
-            }
-            $this->data['section_options'] = $section_options;
+            $this->data['class_options'] = $this->app_lib->get_class_teacher_class_options($branchID);
+            $this->data['section_options'] = $this->app_lib->get_class_teacher_section_options($classID);
         } else {
             $this->data['class_options'] = $this->app_lib->getClass($branchID);
             $this->data['section_options'] = !empty($classID) ? $this->app_lib->getSections($classID, false) : array('' => translate('select_class_first'));
@@ -1309,7 +1283,7 @@ class Digital_diary extends Admin_Controller
         $className = (string) get_type_name_by_id('class', $classID);
         $sectionName = (string) get_type_name_by_id('section', $sectionID);
 
-        $this->db->select('t.subject_id, t.teacher_id, t.time_start, t.time_end, t.break, t.class_room, s.name as subject_name, st.name as teacher_name');
+        $this->db->select('t.id as timetable_id, t.subject_id, t.teacher_id, t.time_start, t.time_end, t.break, t.class_room, s.name as subject_name, st.name as teacher_name');
         $this->db->from('timetable_class as t');
         $this->db->join('subject as s', 's.id = t.subject_id', 'left');
         $this->db->join('staff as st', 'st.id = t.teacher_id', 'left');
@@ -1341,6 +1315,7 @@ class Digital_diary extends Admin_Controller
             $filled[$periodNo] = array(
                 'class_id' => $classID,
                 'section_id' => $sectionID,
+                'timetable_id' => (int) $row->timetable_id,
                 'class_name' => $className,
                 'section_name' => $sectionName,
                 'is_class_teacher' => $isClassTeacher,
@@ -1356,7 +1331,7 @@ class Digital_diary extends Admin_Controller
                 'is_period' => true,
                 'is_assigned' => true,
                 'is_empty' => false,
-                'can_open' => true,
+                'can_open' => $isClassTeacher,
                 'day' => $day,
                 'work_date' => $workDate,
             );
@@ -1396,8 +1371,7 @@ class Digital_diary extends Admin_Controller
     }
 
     /**
-     * Teacher schedule for SWR landing — selected/current date only.
-     * Each related class/section shows 8 period slots (assigned filled, others empty).
+     * Teacher schedule for SWR landing — assigned periods for the selected date, across classes.
      *
      * @return array{boxes:array,days:array}
      */
@@ -1501,7 +1475,6 @@ class Digital_diary extends Admin_Controller
             return array('boxes' => $allBoxes, 'days' => $orderedDays);
         }
 
-        $classRows = array();
         $flatPeriods = array();
         $csForDay = array();
         if (!empty($teacherDayCs[$dayKey])) {
@@ -1510,18 +1483,6 @@ class Digital_diary extends Admin_Controller
                     $csForDay[$csKey] = $classSections[$csKey];
                 }
             }
-        }
-        foreach ($classSections as $csKey => $pair) {
-            if (isset($csForDay[$csKey])) {
-                continue;
-            }
-            if ($this->subject_model->getClassTeacherByClassSection($pair[0], $pair[1])) {
-                $csForDay[$csKey] = $pair;
-            }
-        }
-        // Nothing on this weekday — still show linked classes with all empty period boxes.
-        if (empty($csForDay) && !empty($classSections)) {
-            $csForDay = $classSections;
         }
 
         foreach ($csForDay as $csKey => $pair) {
@@ -1534,30 +1495,49 @@ class Digital_diary extends Admin_Controller
                 $teacherId,
                 $slotCount
             );
-            // Always keep the row (all 8 boxes), even when every slot is empty / unassigned.
-            $classRows[] = array(
-                'class_id' => (int) $pair[0],
-                'section_id' => (int) $pair[1],
-                'class_name' => (string) get_type_name_by_id('class', (int) $pair[0]),
-                'section_name' => (string) get_type_name_by_id('section', (int) $pair[1]),
-                'periods' => $slots,
-            );
             foreach ($slots as $sl) {
+                if (empty($sl['is_assigned'])) {
+                    continue;
+                }
                 $flatPeriods[] = $sl;
-                $allBoxes[] = $sl;
             }
         }
+        usort($flatPeriods, function ($left, $right) {
+            $timeOrder = strcmp((string) $left['time_start'], (string) $right['time_start']);
+            if ($timeOrder !== 0) {
+                return $timeOrder;
+            }
+            return (int) $left['class_id'] - (int) $right['class_id'];
+        });
+        $stepStatusCache = array();
+        foreach ($flatPeriods as $index => $period) {
+            $cacheKey = (int) $period['class_id'] . '-' . (int) $period['section_id']
+                . '-' . (int) $period['subject_id'];
+            if (!array_key_exists($cacheKey, $stepStatusCache)) {
+                $stepStatusCache[$cacheKey] = $this->digital_diary_teacher_period_steps_status(
+                    $branchID,
+                    $workDate,
+                    (int) $period['class_id'],
+                    (int) $period['section_id'],
+                    (int) $period['subject_id']
+                );
+            }
+            $flatPeriods[$index]['step1_complete'] = $stepStatusCache[$cacheKey]['step1_complete'];
+            $flatPeriods[$index]['step2_complete'] = $stepStatusCache[$cacheKey]['step2_complete'];
+            $flatPeriods[$index]['is_work_complete'] = $stepStatusCache[$cacheKey]['is_work_complete'];
+        }
+        $allBoxes = $flatPeriods;
 
         $orderedDays[] = array(
             'day' => $dayKey,
             'day_label' => strtoupper($dayKey),
             'date' => $workDate,
             'periods' => $flatPeriods,
-            'class_rows' => $classRows,
+            'class_rows' => array(),
             'is_holiday' => false,
-            'is_empty_day' => empty($classRows),
+            'is_empty_day' => empty($flatPeriods),
             'holiday_label' => '',
-            'holiday_note' => empty($classRows) ? 'No assigned periods for you on this date.' : '',
+            'holiday_note' => empty($flatPeriods) ? 'No assigned periods for you on this date.' : '',
         );
 
         return array('boxes' => $allBoxes, 'days' => $orderedDays);
@@ -1632,6 +1612,81 @@ class Digital_diary extends Admin_Controller
         return $ordered;
     }
 
+    protected function digital_diary_get_teacher_timetable_scope($timetableID, $branchID, $workDate)
+    {
+        $timetableID = (int) $timetableID;
+        $branchID = (int) $branchID;
+        $teacherID = (int) get_loggedin_user_id();
+        $sessionID = (int) get_session_id();
+        $date = DateTime::createFromFormat('!Y-m-d', (string) $workDate);
+        if (!is_teacher_loggedin() || $timetableID < 1 || $branchID < 1 || $teacherID < 1 || $sessionID < 1
+            || !$date || $date->format('Y-m-d') !== (string) $workDate) {
+            return false;
+        }
+
+        $period = $this->db->get_where('timetable_class', array(
+            'id' => $timetableID,
+            'branch_id' => $branchID,
+            'session_id' => $sessionID,
+            'teacher_id' => $teacherID,
+        ))->row();
+        if (empty($period)
+            || (int) $period->class_id < 1
+            || (int) $period->section_id < 1
+            || (int) $period->subject_id < 1
+            || $this->digital_diary_is_timetable_break($period->break)
+            || strtolower(trim((string) $period->day)) !== strtolower($date->format('l'))) {
+            return false;
+        }
+        return $period;
+    }
+
+    protected function digital_diary_teacher_period_steps_status($branchID, $workDate, $classID, $sectionID, $subjectID)
+    {
+        if (!$this->db->table_exists('digital_diary_student_work_report')
+            || !$this->db->table_exists('digital_diary_today_work')
+            || (int) $subjectID < 1) {
+            return array(
+                'step1_complete' => false,
+                'step2_complete' => false,
+                'is_work_complete' => false,
+            );
+        }
+        $students = $this->digital_diary_model->getStudentsForStudentWorkReport(
+            $branchID,
+            $classID,
+            $sectionID
+        );
+        if (empty($students)) {
+            return array(
+                'step1_complete' => false,
+                'step2_complete' => false,
+                'is_work_complete' => false,
+            );
+        }
+
+        $todayWorkMap = $this->digital_diary_model->getTodayWorkMapByClassSectionDate(
+            $workDate,
+            $branchID,
+            $classID,
+            $sectionID
+        );
+        $reportMap = $this->digital_diary_model->getStudentWorkReportSavedMap(
+            $workDate,
+            $branchID,
+            $classID,
+            $sectionID,
+            (int) $subjectID
+        );
+        $step1Complete = count($reportMap) >= count($students);
+        $step2Complete = !empty($todayWorkMap[(int) $subjectID]);
+        return array(
+            'step1_complete' => $step1Complete,
+            'step2_complete' => $step2Complete,
+            'is_work_complete' => $step1Complete && $step2Complete,
+        );
+    }
+
     protected function digital_diary_teacher_may_view_subject($classID, $sectionID, $subjectID)
     {
         if (!is_teacher_loggedin()) {
@@ -1656,89 +1711,279 @@ class Digital_diary extends Admin_Controller
         return $this->db->get('timetable_class')->num_rows() > 0;
     }
 
+    protected function digital_diary_teacher_is_class_teacher_for_section($classID, $sectionID)
+    {
+        if (!is_teacher_loggedin()) {
+            return true;
+        }
+        $this->load->model('subject_model');
+        return (bool) $this->subject_model->getClassTeacherByClassSection($classID, $sectionID);
+    }
+
     /**
-     * Subject IDs a teacher may see for non-performer / branch-wide reports.
+     * Assigned class/section/subject scopes for teacher non-performer reporting.
      *
+     * @return array<string,array{class_id:int,section_id:int,subject_id:int,class_name:string,section_name:string,subject_name:string}>
+     */
+    protected function digital_diary_teacher_non_performer_scopes($branchID)
+    {
+        $teacherID = (int) get_loggedin_user_id();
+        $sessionID = (int) get_session_id();
+        $scopes = array();
+        $addScope = function ($classID, $sectionID, $subjectID, $className, $sectionName, $subjectName) use (&$scopes) {
+            $classID = (int) $classID;
+            $sectionID = (int) $sectionID;
+            $subjectID = (int) $subjectID;
+            if ($classID <= 0 || $sectionID <= 0 || $subjectID <= 0) {
+                return;
+            }
+            $key = $classID . ':' . $sectionID . ':' . $subjectID;
+            $scopes[$key] = array(
+                'class_id' => $classID,
+                'section_id' => $sectionID,
+                'subject_id' => $subjectID,
+                'class_name' => (string) $className,
+                'section_name' => (string) $sectionName,
+                'subject_name' => (string) $subjectName,
+                'scope_type' => 'assigned',
+            );
+        };
+
+        $this->db->select('sa.class_id, sa.section_id, sa.subject_id, c.name as class_name, s.name as section_name, sb.name as subject_name');
+        $this->db->from('subject_assign as sa');
+        $this->db->join('class as c', 'c.id = sa.class_id', 'left');
+        $this->db->join('section as s', 's.id = sa.section_id', 'left');
+        $this->db->join('subject as sb', 'sb.id = sa.subject_id', 'left');
+        $this->db->where('sa.teacher_id', $teacherID);
+        $this->db->where('sa.branch_id', (int) $branchID);
+        $this->db->where('sa.session_id', $sessionID);
+        foreach ($this->db->get()->result_array() as $assignment) {
+            $addScope(
+                $assignment['class_id'],
+                $assignment['section_id'],
+                $assignment['subject_id'],
+                $assignment['class_name'],
+                $assignment['section_name'],
+                $assignment['subject_name']
+            );
+        }
+
+        $this->db->select('tc.class_id, tc.section_id, tc.subject_id, c.name as class_name, s.name as section_name, sb.name as subject_name');
+        $this->db->from('timetable_class as tc');
+        $this->db->join('class as c', 'c.id = tc.class_id', 'left');
+        $this->db->join('section as s', 's.id = tc.section_id', 'left');
+        $this->db->join('subject as sb', 'sb.id = tc.subject_id', 'left');
+        $this->db->where('tc.teacher_id', $teacherID);
+        $this->db->where('tc.branch_id', (int) $branchID);
+        $this->db->where('tc.session_id', $sessionID);
+        $this->db->where('tc.break', 0);
+        foreach ($this->db->get()->result_array() as $period) {
+            $addScope(
+                $period['class_id'],
+                $period['section_id'],
+                $period['subject_id'],
+                $period['class_name'],
+                $period['section_name'],
+                $period['subject_name']
+            );
+        }
+
+        return $scopes;
+    }
+
+    /**
+     * Report scopes include every mapped subject for a teacher's class-teacher sections.
+     *
+     * @param array<int,array<int,int>>|null $classTeacherSections
+     * @return array<string,array{class_id:int,section_id:int,subject_id:int,class_name:string,section_name:string,subject_name:string}>
+     */
+    protected function digital_diary_teacher_non_performer_report_scopes($branchID, $classTeacherSections = null)
+    {
+        $scopes = $this->digital_diary_teacher_non_performer_scopes($branchID);
+        if ($classTeacherSections === null) {
+            $classTeacherSections = $this->app_lib->get_class_teacher_sections($branchID);
+        }
+
+        $sectionPairs = array();
+        foreach ($classTeacherSections as $classID => $sectionIDs) {
+            foreach ($sectionIDs as $sectionID) {
+                $classID = (int) $classID;
+                $sectionID = (int) $sectionID;
+                if ($classID > 0 && $sectionID > 0) {
+                    $sectionPairs[$classID . ':' . $sectionID] = array($classID, $sectionID);
+                }
+            }
+        }
+        if (empty($sectionPairs)) {
+            return $scopes;
+        }
+
+        foreach (array(
+            array('subject_assign', 'sa'),
+            array('timetable_class', 'tc'),
+        ) as $source) {
+            $table = $source[0];
+            $alias = $source[1];
+            if (!$this->db->table_exists($table)) {
+                continue;
+            }
+            $this->db->select(
+                $alias . '.class_id, ' . $alias . '.section_id, ' . $alias . '.subject_id, ' .
+                'c.name as class_name, s.name as section_name, sb.name as subject_name'
+            );
+            $this->db->from($table . ' as ' . $alias);
+            $this->db->join('class as c', 'c.id = ' . $alias . '.class_id', 'left');
+            $this->db->join('section as s', 's.id = ' . $alias . '.section_id', 'left');
+            $this->db->join('subject as sb', 'sb.id = ' . $alias . '.subject_id', 'left');
+            $this->db->where($alias . '.branch_id', (int) $branchID);
+            $this->db->where($alias . '.session_id', (int) get_session_id());
+            if ($table === 'timetable_class') {
+                $this->db->where($alias . '.break', 0);
+            }
+            $this->db->group_start();
+            foreach ($sectionPairs as $pair) {
+                $this->db->or_group_start();
+                $this->db->where($alias . '.class_id', $pair[0]);
+                $this->db->where($alias . '.section_id', $pair[1]);
+                $this->db->group_end();
+            }
+            $this->db->group_end();
+
+            foreach ($this->db->get()->result_array() as $row) {
+                $classID = (int) $row['class_id'];
+                $sectionID = (int) $row['section_id'];
+                $subjectID = (int) $row['subject_id'];
+                $key = $classID . ':' . $sectionID . ':' . $subjectID . ':class_teacher';
+                $scopes[$key] = array(
+                    'class_id' => $classID,
+                    'section_id' => $sectionID,
+                    'subject_id' => $subjectID,
+                    'class_name' => (string) $row['class_name'],
+                    'section_name' => (string) $row['section_name'],
+                    'subject_name' => (string) $row['subject_name'],
+                    'scope_type' => 'class_teacher',
+                );
+            }
+        }
+        return $scopes;
+    }
+
+    /**
+     * Subject-teacher names grouped by class, subject and teacher-view scope.
+     *
+     * @param array<string,array> $teacherScopes
+     * @return array<string,array<int,string>>
+     */
+    protected function digital_diary_teacher_report_subject_teacher_names($branchID, $teacherScopes)
+    {
+        $scopeTypes = array();
+        foreach ($teacherScopes as $scope) {
+            $key = (int) $scope['class_id'] . ':' . (int) $scope['section_id'] . ':' . (int) $scope['subject_id'];
+            $scopeType = isset($scope['scope_type']) && $scope['scope_type'] === 'class_teacher'
+                ? 'class_teacher'
+                : 'assigned';
+            $scopeTypes[$key][$scopeType] = true;
+        }
+        if (empty($scopeTypes)) {
+            return array();
+        }
+
+        $names = array();
+        foreach (array(
+            array('subject_assign', 'sa'),
+            array('timetable_class', 'tc'),
+        ) as $source) {
+            $table = $source[0];
+            $alias = $source[1];
+            if (!$this->db->table_exists($table)) {
+                continue;
+            }
+            $this->db->select(
+                $alias . '.class_id, ' . $alias . '.section_id, ' . $alias . '.subject_id, ' .
+                'stf.id as teacher_id, stf.name as teacher_name'
+            );
+            $this->db->from($table . ' as ' . $alias);
+            $this->db->join('staff as stf', 'stf.id = ' . $alias . '.teacher_id', 'inner');
+            $this->db->where($alias . '.branch_id', (int) $branchID);
+            $this->db->where($alias . '.session_id', (int) get_session_id());
+            if ($table === 'timetable_class') {
+                $this->db->where($alias . '.break', 0);
+            }
+            $this->db->group_start();
+            foreach ($scopeTypes as $scopeKey => $scopeType) {
+                $parts = explode(':', $scopeKey);
+                $this->db->or_group_start();
+                $this->db->where($alias . '.class_id', (int) $parts[0]);
+                $this->db->where($alias . '.section_id', (int) $parts[1]);
+                $this->db->where($alias . '.subject_id', (int) $parts[2]);
+                $this->db->group_end();
+            }
+            $this->db->group_end();
+
+            foreach ($this->db->get()->result_array() as $row) {
+                $scopeKey = (int) $row['class_id'] . ':' . (int) $row['section_id'] . ':' . (int) $row['subject_id'];
+                if (!isset($scopeTypes[$scopeKey])) {
+                    continue;
+                }
+                foreach ($scopeTypes[$scopeKey] as $scopeType => $included) {
+                    $key = (int) $row['class_id'] . ':' . (int) $row['subject_id'] . ':' . $scopeType;
+                    $teacherID = (int) $row['teacher_id'];
+                    $names[$key][$teacherID] = (string) $row['teacher_name'];
+                }
+            }
+        }
+
+        foreach ($names as $key => $teacherNames) {
+            $names[$key] = array_values($teacherNames);
+        }
+        return $names;
+    }
+
+    /**
+     * Subject columns visible in the non-performer report.
+     *
+     * @param array<string,array>|null $teacherScopes
      * @return array<int,array{id:int,name:string}>
      */
-    protected function digital_diary_teacher_report_subjects($branchID)
+    protected function digital_diary_teacher_report_subjects($branchID, $teacherScopes = null)
     {
+        if (!is_teacher_loggedin()) {
+            $this->db->select('id, name');
+            $this->db->from('subject');
+            if (!empty($branchID)) {
+                $this->db->where('branch_id', (int) $branchID);
+            }
+            $this->db->order_by('name');
+            $all = array();
+            foreach ($this->db->get()->result_array() as $subject) {
+                $all[] = array('id' => (int) $subject['id'], 'name' => $subject['name']);
+            }
+            return $all;
+        }
+
+        if ($teacherScopes === null) {
+            $teacherScopes = $this->digital_diary_teacher_non_performer_scopes($branchID);
+        }
+        $allowedSubjects = array();
+        foreach ($teacherScopes as $scope) {
+            $subjectID = (int) $scope['subject_id'];
+            $allowedSubjects[$subjectID] = (string) $scope['subject_name'];
+        }
+        if (empty($allowedSubjects)) {
+            return array();
+        }
         $this->db->select('id, name');
         $this->db->from('subject');
         if (!empty($branchID)) {
             $this->db->where('branch_id', (int) $branchID);
         }
+        $this->db->where_in('id', array_keys($allowedSubjects));
         $this->db->order_by('name');
-        $all = array();
-        foreach ($this->db->get()->result_array() as $s) {
-            $all[] = array('id' => (int) $s['id'], 'name' => $s['name']);
-        }
-        if (!is_teacher_loggedin()) {
-            return $all;
-        }
-        $allowedIds = array();
-        $classes = $this->digital_diary_teacher_allowed_class_map($branchID);
-        $assigned = $this->app_lib->get_ownClassSection();
-        foreach ($classes as $cid => $cname) {
-            $sectionIds = array();
-            if ($assigned === false) {
-                $sections = $this->app_lib->getSections($cid, false);
-                unset($sections['']);
-                $sectionIds = array_keys($sections);
-            } elseif (isset($assigned[$cid])) {
-                $sectionIds = $assigned[$cid];
-            }
-            foreach ($sectionIds as $sid) {
-                if ($this->subject_model->getClassTeacherByClassSection($cid, $sid)) {
-                    $allSubQ = $this->subject_model->getAllSubjectsListForClassSection($cid, $sid, $branchID);
-                    foreach ($allSubQ->result() as $srow) {
-                        if (!empty($srow->subject_id)) {
-                            $allowedIds[(int) $srow->subject_id] = true;
-                        }
-                    }
-                } else {
-                    $tq = $this->subject_model->getSubjectByClassSection($cid, $sid);
-                    foreach ($tq->result() as $trow) {
-                        if (!empty($trow->subject_id)) {
-                            $allowedIds[(int) $trow->subject_id] = true;
-                        }
-                    }
-                }
-            }
-        }
         $out = array();
-        foreach ($all as $s) {
-            if (isset($allowedIds[$s['id']])) {
-                $out[] = $s;
-            }
+        foreach ($this->db->get()->result_array() as $subject) {
+            $out[] = array('id' => (int) $subject['id'], 'name' => $subject['name']);
         }
         return $out;
-    }
-
-    protected function digital_diary_teacher_may_access_np_cell($classID, $subjectID)
-    {
-        if (!is_teacher_loggedin()) {
-            return true;
-        }
-        $classes = $this->digital_diary_teacher_allowed_class_map($this->application_model->get_branch_id());
-        if (!isset($classes[(int) $classID])) {
-            return false;
-        }
-        $assigned = $this->app_lib->get_ownClassSection();
-        $sectionIds = array();
-        if ($assigned === false) {
-            $sections = $this->app_lib->getSections($classID, false);
-            unset($sections['']);
-            $sectionIds = array_keys($sections);
-        } elseif (isset($assigned[(int) $classID])) {
-            $sectionIds = $assigned[(int) $classID];
-        }
-        foreach ($sectionIds as $sid) {
-            if ($this->digital_diary_teacher_may_view_subject($classID, $sid, $subjectID)) {
-                return true;
-            }
-        }
-        return false;
     }
 
     /**
@@ -3195,25 +3440,64 @@ class Digital_diary extends Admin_Controller
         $sectionID = (int) $this->input->get('section_id');
         $subjectID = (int) $this->input->get('subject_id');
         $subjectGroup = trim((string) $this->input->get('subject_group'));
+        $periodScoped = false;
+        $periodSubjectID = 0;
+        $timetableID = (int) $this->input->get('timetable_id');
+        if (is_teacher_loggedin() && $timetableID > 0) {
+            $this->load->model('subject_model');
+            $periodScope = $this->digital_diary_get_teacher_timetable_scope($timetableID, $branchID, $reportDate);
+            if ($periodScope === false) {
+                access_denied();
+            }
+            $classID = (int) $periodScope->class_id;
+            $sectionID = (int) $periodScope->section_id;
+            $subjectID = (int) $periodScope->subject_id;
+            $subjectGroup = '';
+            $periodSubjectID = $subjectID;
+            $periodScoped = true;
+        }
 
         $this->data['today_date'] = $reportDate;
         $this->data['filter_class_id'] = $classID;
         $this->data['filter_section_id'] = $sectionID;
         $this->data['filter_subject_id'] = $subjectID;
         $this->data['filter_subject_group'] = $subjectGroup;
+        $this->data['period_scoped'] = $periodScoped;
+        $this->data['timetable_id'] = $periodScoped ? $timetableID : 0;
 
         // If SWR is not submitted for this day/class/section, open SWR first.
         // Example: digital_diary/student_work_report_entry?date=2026-08-05&class_id=1&section_id=1&branch_id=1
-        if ((int) $branchID > 0 && (int) $classID > 0 && (int) $sectionID > 0
-            && $this->db->table_exists('digital_diary_student_work_report')
-            && !$this->digital_diary_model->hasStudentWorkReportForDay($reportDate, $branchID, $classID, $sectionID)
-        ) {
+        $step1Complete = true;
+        if ($periodScoped) {
+            $students = $this->digital_diary_model->getStudentsForStudentWorkReport($branchID, $classID, $sectionID);
+            $savedSubjectReport = $this->digital_diary_model->getStudentWorkReportSavedMap(
+                $reportDate,
+                $branchID,
+                $classID,
+                $sectionID,
+                $periodSubjectID
+            );
+            $step1Complete = !empty($students) && count($savedSubjectReport) >= count($students);
+        } elseif ((int) $branchID > 0 && (int) $classID > 0 && (int) $sectionID > 0
+            && $this->db->table_exists('digital_diary_student_work_report')) {
+            $step1Complete = $this->digital_diary_model->hasStudentWorkReportForDay(
+                $reportDate,
+                $branchID,
+                $classID,
+                $sectionID
+            );
+        }
+        if ((int) $branchID > 0 && (int) $classID > 0 && (int) $sectionID > 0 && !$step1Complete) {
             $swrQ = array(
                 'date' => $reportDate,
                 'class_id' => (int) $classID,
                 'section_id' => (int) $sectionID,
                 'branch_id' => (int) $branchID,
             );
+            if ($periodScoped) {
+                $swrQ['subject_id'] = $periodSubjectID;
+                $swrQ['timetable_id'] = $timetableID;
+            }
             redirect(base_url('digital_diary/student_work_report_entry') . '?' . http_build_query($swrQ));
             return;
         }
@@ -3445,6 +3729,7 @@ class Digital_diary extends Admin_Controller
                     'syllabus_percentage' => $sylPct,
                     'student_work_percentage' => $workPct,
                     'has_work' => !empty($saved),
+                    'today_work_id' => !empty($saved['id']) ? (int) $saved['id'] : 0,
                 );
             }
             $this->data['subject_group_options'] = $subjectGroupOptions;
@@ -3461,7 +3746,8 @@ class Digital_diary extends Admin_Controller
                 if (isset($savedMap[$sidAll])) {
                     $subjectsFilled++;
                 }
-                if (!is_teacher_loggedin() || $this->digital_diary_teacher_may_view_subject($classID, $sectionID, $sidAll)) {
+                if ((!$periodScoped || $sidAll === $periodSubjectID)
+                    && (!is_teacher_loggedin() || $this->digital_diary_teacher_may_view_subject($classID, $sectionID, $sidAll))) {
                     $mySubjectsNeeding++;
                     if (isset($savedMap[$sidAll])) {
                         $mySubjectsFilled++;
@@ -3539,7 +3825,13 @@ class Digital_diary extends Admin_Controller
             echo json_encode(array('status' => 'fail', 'lessons' => array()));
             return;
         }
-        if (is_teacher_loggedin() && !$this->digital_diary_teacher_may_use_class_section($branchID, $classID, $sectionID)) {
+        if (is_teacher_loggedin()
+            && !$this->digital_diary_teacher_may_use_class_section($branchID, $classID, $sectionID)
+            && !$this->digital_diary_teacher_may_view_subject($classID, $sectionID, $subjectID)) {
+            echo json_encode(array('status' => 'fail', 'lessons' => array()));
+            return;
+        }
+        if (is_teacher_loggedin() && !$this->digital_diary_teacher_may_view_subject($classID, $sectionID, $subjectID)) {
             echo json_encode(array('status' => 'fail', 'lessons' => array()));
             return;
         }
@@ -3611,7 +3903,13 @@ class Digital_diary extends Admin_Controller
             echo json_encode(array('status' => 'fail', 'questions' => array()));
             return;
         }
-        if (is_teacher_loggedin() && !$this->digital_diary_teacher_may_use_class_section($branchID, $classID, $sectionID)) {
+        if (is_teacher_loggedin()
+            && !$this->digital_diary_teacher_may_use_class_section($branchID, $classID, $sectionID)
+            && !$this->digital_diary_teacher_may_view_subject($classID, $sectionID, $subjectID)) {
+            echo json_encode(array('status' => 'fail', 'questions' => array()));
+            return;
+        }
+        if (is_teacher_loggedin() && !$this->digital_diary_teacher_may_view_subject($classID, $sectionID, $subjectID)) {
             echo json_encode(array('status' => 'fail', 'questions' => array()));
             return;
         }
@@ -3663,6 +3961,12 @@ class Digital_diary extends Admin_Controller
             echo json_encode(array('status' => 'fail', 'questions' => array(), 'warning' => 'Select subject and question type.'));
             return;
         }
+        if (is_teacher_loggedin()
+            && (!$this->digital_diary_teacher_may_view_subject($classID, $sectionID, $subjectID)
+                || !$this->digital_diary_today_work_validate_subject($branchID, $classID, $sectionID, $subjectID))) {
+            echo json_encode(array('status' => 'fail', 'questions' => array(), 'warning' => translate('access_denied')));
+            return;
+        }
         $picked = $this->digital_diary_model->autoPickQuestionsForLearning(
             $branchID,
             $classID,
@@ -3698,12 +4002,19 @@ class Digital_diary extends Admin_Controller
         $sectionID = (int) $this->input->post('section_id');
         $subjectID = (int) $this->input->post('subject_id');
         $workDate = $this->input->post('work_date');
-        if (is_teacher_loggedin() && !$this->digital_diary_teacher_may_use_class_section($branchID, $classID, $sectionID)) {
+        if (empty($workDate) || empty($classID) || empty($sectionID) || empty($subjectID)) {
+            echo json_encode(array('status' => 'fail', 'message' => translate('invalid')));
+            return;
+        }
+        if (is_teacher_loggedin()
+            && (!$this->digital_diary_teacher_may_view_subject($classID, $sectionID, $subjectID)
+                || (!$this->digital_diary_teacher_may_use_class_section($branchID, $classID, $sectionID)
+                    && !$this->digital_diary_teacher_may_view_subject($classID, $sectionID, $subjectID)))) {
             echo json_encode(array('status' => 'fail', 'message' => translate('access_denied')));
             return;
         }
-        if (empty($workDate) || empty($classID) || empty($sectionID) || empty($subjectID)) {
-            echo json_encode(array('status' => 'fail', 'message' => translate('invalid')));
+        if (!$this->digital_diary_today_work_validate_subject($branchID, $classID, $sectionID, $subjectID)) {
+            echo json_encode(array('status' => 'fail', 'message' => translate('invalid') . ' ' . translate('subject')));
             return;
         }
         if ($this->digital_diary_model->isTodayWorkDayFinal(
@@ -3799,16 +4110,34 @@ class Digital_diary extends Admin_Controller
         $classID = (int) $this->input->post('class_id');
         $sectionID = (int) $this->input->post('section_id');
         $subjectID = (int) $this->input->post('subject_id');
+        $workDate = date('Y-m-d', strtotime($this->input->post('work_date')));
+        $periodScoped = false;
+        $periodSubjectID = 0;
+        $timetableID = (int) $this->input->post('timetable_id');
+        if (is_teacher_loggedin() && $timetableID > 0) {
+            $periodScope = $this->digital_diary_get_teacher_timetable_scope($timetableID, $branchID, $workDate);
+            if ($periodScope === false
+                || (int) $periodScope->class_id !== $classID
+                || (int) $periodScope->section_id !== $sectionID
+                || (int) $periodScope->subject_id !== $subjectID) {
+                echo json_encode(array('status' => 'fail', 'error' => array('subject_id' => translate('access_denied'))));
+                return;
+            }
+            $periodScoped = true;
+            $periodSubjectID = (int) $periodScope->subject_id;
+        }
         if (is_teacher_loggedin() && !$this->digital_diary_teacher_may_use_class_section($branchID, $classID, $sectionID)) {
-            echo json_encode(array('status' => 'fail', 'error' => array('class_id' => translate('access_denied'))));
-            return;
+            if (!$periodScoped && !$this->digital_diary_teacher_may_view_subject($classID, $sectionID, $subjectID)) {
+                echo json_encode(array('status' => 'fail', 'error' => array('class_id' => translate('access_denied'))));
+                return;
+            }
         }
         if (is_teacher_loggedin() && !$this->digital_diary_teacher_may_view_subject($classID, $sectionID, $subjectID)) {
             echo json_encode(array('status' => 'fail', 'error' => array('subject_id' => 'You can only save Today\'s Work for your own subject(s).')));
             return;
         }
         if ($this->digital_diary_model->isTodayWorkDayFinal(
-            date('Y-m-d', strtotime($this->input->post('work_date'))),
+            $workDate,
             $branchID,
             $classID,
             $sectionID
@@ -3980,7 +4309,10 @@ class Digital_diary extends Admin_Controller
             $q['branch_id'] = $branchID;
         }
         $filterSubj = (int) $this->input->post('filter_subject_id');
-        if ($filterSubj > 0) {
+        if ($periodScoped) {
+            $q['subject_id'] = $periodSubjectID;
+            $q['timetable_id'] = $timetableID;
+        } elseif ($filterSubj > 0) {
             $q['subject_id'] = $filterSubj;
         }
         $sg = trim((string) $this->input->post('filter_subject_group'));
@@ -4073,6 +4405,88 @@ class Digital_diary extends Admin_Controller
             'keep_form' => true,
             'subject_id' => $subjectID,
             'saved_entry' => $savedJsEntry,
+        ));
+    }
+
+    /**
+     * Delete a saved Today's Work entry. Class teachers and administrators may delete it.
+     */
+    public function today_work_delete()
+    {
+        if ($this->input->method() !== 'post') {
+            show_404();
+        }
+        $this->form_validation->set_rules('work_id', 'Work', 'trim|required|numeric');
+        $this->form_validation->set_rules('work_date', translate('date'), 'trim|required');
+        $this->form_validation->set_rules('class_id', translate('class'), 'trim|required|numeric');
+        $this->form_validation->set_rules('section_id', translate('section'), 'trim|required|numeric');
+        $this->form_validation->set_rules('subject_id', translate('subject'), 'trim|required|numeric');
+        if (is_superadmin_loggedin()) {
+            $this->form_validation->set_rules('branch_id', translate('branch'), 'trim|required|numeric');
+        }
+        if ($this->form_validation->run() === false) {
+            echo json_encode(array('status' => 'fail', 'error' => $this->form_validation->error_array()));
+            return;
+        }
+
+        $dateValue = trim((string) $this->input->post('work_date'));
+        $date = DateTime::createFromFormat('!Y-m-d', $dateValue);
+        if (!$date || $date->format('Y-m-d') !== $dateValue) {
+            echo json_encode(array('status' => 'fail', 'error' => array('form_error' => translate('invalid') . ' ' . translate('date'))));
+            return;
+        }
+        $branchID = is_superadmin_loggedin() ? (int) $this->input->post('branch_id') : (int) get_loggedin_branch_id();
+        $classID = (int) $this->input->post('class_id');
+        $sectionID = (int) $this->input->post('section_id');
+        $subjectID = (int) $this->input->post('subject_id');
+        $workID = (int) $this->input->post('work_id');
+
+        if (is_teacher_loggedin()
+            && (!$this->digital_diary_teacher_is_class_teacher_for_section($classID, $sectionID)
+                || !$this->digital_diary_teacher_may_use_class_section($branchID, $classID, $sectionID))) {
+            echo json_encode(array('status' => 'fail', 'error' => array('form_error' => translate('access_denied'))));
+            return;
+        }
+        if ($this->digital_diary_model->isTodayWorkDayFinal($dateValue, $branchID, $classID, $sectionID)) {
+            echo json_encode(array('status' => 'fail', 'error' => array('form_error' => 'Final submitted. Unlock the day before deleting work.')));
+            return;
+        }
+        if (!$this->digital_diary_today_work_validate_subject($branchID, $classID, $sectionID, $subjectID)) {
+            echo json_encode(array('status' => 'fail', 'error' => array('subject_id' => translate('invalid') . ' ' . translate('subject'))));
+            return;
+        }
+
+        $deleted = $this->digital_diary_model->deleteTodayWorkEntry(array(
+            'id' => $workID,
+            'branch_id' => $branchID,
+            'session_id' => (int) get_session_id(),
+            'work_date' => $dateValue,
+            'class_id' => $classID,
+            'section_id' => $sectionID,
+            'subject_id' => $subjectID,
+        ));
+        if ($deleted === false) {
+            log_message('error', 'Today\'s Work delete failed for entry ' . $workID . ' in class ' . $classID . '/' . $sectionID . '.');
+            echo json_encode(array('status' => 'fail', 'error' => array('form_error' => 'Unable to delete this work entry. It may have already been removed.')));
+            return;
+        }
+
+        $q = array(
+            'date' => $dateValue,
+            'class_id' => $classID,
+            'section_id' => $sectionID,
+        );
+        if (is_superadmin_loggedin()) {
+            $q['branch_id'] = $branchID;
+        }
+        $message = 'Today\'s Work and linked student submissions were deleted.';
+        if (!empty($deleted['cleanup_warnings'])) {
+            $message .= ' ' . implode(' ', $deleted['cleanup_warnings']);
+        }
+        echo json_encode(array(
+            'status' => 'success',
+            'url' => base_url('digital_diary/today_work') . '?' . http_build_query($q),
+            'message' => $message,
         ));
     }
 
@@ -4286,6 +4700,9 @@ class Digital_diary extends Admin_Controller
         if (empty($branchID)) {
             $branchID = get_loggedin_branch_id();
         }
+        if (is_teacher_loggedin()) {
+            $branchID = get_loggedin_branch_id();
+        }
 
         $this->data['branch_id'] = $branchID;
         $this->data['branch_name'] = !empty($branchID) ? get_type_name_by_id('branch', $branchID) : '';
@@ -4308,9 +4725,10 @@ class Digital_diary extends Admin_Controller
         $this->data['report_rows'] = array();
 
         if (!empty($classID) && !empty($sectionID)) {
-            if (!is_teacher_loggedin() || $this->digital_diary_teacher_may_use_class_section($branchID, $classID, $sectionID)) {
-                $this->data['report_rows'] = $this->digital_diary_build_todays_work_report_rows($branchID, $reportDate, $classID, $sectionID, $subjectID);
+            if (is_teacher_loggedin() && !$this->digital_diary_teacher_is_class_teacher_for_section($classID, $sectionID)) {
+                access_denied();
             }
+            $this->data['report_rows'] = $this->digital_diary_build_todays_work_report_rows($branchID, $reportDate, $classID, $sectionID, $subjectID);
         }
 
         $this->data['title'] = "Today's Work Report";
@@ -4329,6 +4747,9 @@ class Digital_diary extends Admin_Controller
             $branchID = $this->application_model->get_branch_id();
         }
         if (empty($branchID)) {
+            $branchID = get_loggedin_branch_id();
+        }
+        if (is_teacher_loggedin()) {
             $branchID = get_loggedin_branch_id();
         }
 
@@ -4355,7 +4776,98 @@ class Digital_diary extends Admin_Controller
         $this->data['teacher_filter'] = $teacherFilter;
 
         $this->load->model('subject_model');
+        if (is_teacher_loggedin()) {
+            $classTeacherSections = $this->app_lib->get_class_teacher_sections($branchID);
+            $teacherScopes = $this->digital_diary_teacher_non_performer_report_scopes($branchID, $classTeacherSections);
+            $teacherNamesByScope = $this->digital_diary_teacher_report_subject_teacher_names($branchID, $teacherScopes);
+            $syllabusRows = array();
+            $progressCache = array();
+            $scopeCounts = array('assigned' => 0, 'class_teacher' => 0);
+
+            foreach ($teacherScopes as $scope) {
+                $classID = (int) $scope['class_id'];
+                $sectionID = (int) $scope['section_id'];
+                $subjectID = (int) $scope['subject_id'];
+                $scopeType = $scope['scope_type'] === 'class_teacher' ? 'class_teacher' : 'assigned';
+                $progressKey = $classID . ':' . $sectionID . ':' . $subjectID;
+                if (!isset($progressCache[$progressKey])) {
+                    $lessons = $this->digital_diary_model->getLessonsBySubject($classID, $sectionID, $subjectID, $branchID);
+                    $lessonIDs = array();
+                    foreach ($lessons as $lesson) {
+                        $lessonIDs[(int) $lesson['id']] = true;
+                    }
+                    $syllabusProgress = $this->digital_diary_model->getLessonSyllabusCompletionPercent(
+                        $classID,
+                        $sectionID,
+                        $subjectID,
+                        $branchID,
+                        $todayDate
+                    );
+                    $completedCount = null;
+                    if ($syllabusProgress['syllabus_percentage'] !== '—') {
+                        $completedIDs = $this->digital_diary_model->getCompletedLessonIdsForSubject(
+                            $classID,
+                            $sectionID,
+                            $subjectID,
+                            $branchID,
+                            $todayDate
+                        );
+                        $completedCount = 0;
+                        foreach ($completedIDs as $completedID) {
+                            if (isset($lessonIDs[(int) $completedID])) {
+                                $completedCount++;
+                            }
+                        }
+                    }
+                    $progressCache[$progressKey] = array(
+                        'lessons_total' => count($lessons),
+                        'lessons_completed' => $completedCount,
+                        'syllabus_percent' => $syllabusProgress['syllabus_percentage'],
+                    );
+                }
+
+                $teacherNamesKey = $classID . ':' . $subjectID . ':' . $scopeType;
+                $syllabusRows[] = array(
+                    'class_id' => $classID,
+                    'class_name' => (string) $scope['class_name'],
+                    'section_id' => $sectionID,
+                    'section_name' => (string) $scope['section_name'],
+                    'subject_id' => $subjectID,
+                    'subject_name' => (string) $scope['subject_name'],
+                    'subject_teacher_names' => isset($teacherNamesByScope[$teacherNamesKey])
+                        ? $teacherNamesByScope[$teacherNamesKey]
+                        : array(),
+                    'scope_type' => $scopeType,
+                    'lessons_total' => $progressCache[$progressKey]['lessons_total'],
+                    'lessons_completed' => $progressCache[$progressKey]['lessons_completed'],
+                    'syllabus_percent' => $progressCache[$progressKey]['syllabus_percent'],
+                );
+                $scopeCounts[$scopeType]++;
+            }
+
+            usort($syllabusRows, function ($a, $b) {
+                $classCompare = strcasecmp($a['class_name'], $b['class_name']);
+                if ($classCompare !== 0) {
+                    return $classCompare;
+                }
+                $sectionCompare = strcasecmp($a['section_name'], $b['section_name']);
+                if ($sectionCompare !== 0) {
+                    return $sectionCompare;
+                }
+                return strcasecmp($a['subject_name'], $b['subject_name']);
+            });
+
+            $this->data['teacher_syllabus_rows'] = $syllabusRows;
+            $this->data['teacher_syllabus_scope_counts'] = $scopeCounts;
+            $this->data['title'] = 'Syllabus Report';
+            $this->data['sub_page'] = 'digital_diary/syllabus_report_teacher';
+            $this->data['main_menu'] = 'digital_diary';
+            $this->load->view('layout/index', $this->data);
+            return;
+        }
+
         $classes = $this->digital_diary_teacher_allowed_class_map($branchID);
+        $classTeacherSections = is_teacher_loggedin() ? $this->app_lib->get_class_teacher_sections($branchID) : array();
         $classRows = array();
         $winnerClass = '';
         $winnerClassOverall = null;
@@ -4365,17 +4877,20 @@ class Digital_diary extends Admin_Controller
             if ($cid <= 0) {
                 continue;
             }
-            $sections = $this->app_lib->getSections($cid, false);
-            unset($sections['']);
+            if (is_teacher_loggedin()) {
+                $sections = array();
+                foreach (isset($classTeacherSections[$cid]) ? $classTeacherSections[$cid] : array() as $sectionID) {
+                    $sections[$sectionID] = get_type_name_by_id('section', $sectionID);
+                }
+            } else {
+                $sections = $this->app_lib->getSections($cid, false);
+                unset($sections['']);
+            }
             foreach ($sections as $sid => $sname) {
                 $sid = (int) $sid;
                 if ($sid <= 0) {
                     continue;
                 }
-                if (is_teacher_loggedin() && !$this->digital_diary_teacher_may_use_class_section($branchID, $cid, $sid)) {
-                    continue;
-                }
-
                 $assignPctAgg = array();
                 $workPctAgg = array();
                 $sylPctAgg = array();
@@ -4648,6 +5163,9 @@ class Digital_diary extends Admin_Controller
         if (empty($branchID)) {
             $branchID = get_loggedin_branch_id();
         }
+        if (is_teacher_loggedin()) {
+            $branchID = get_loggedin_branch_id();
+        }
 
         $from = $this->input->get('from');
         $to = $this->input->get('to');
@@ -4664,12 +5182,18 @@ class Digital_diary extends Admin_Controller
 
         $classID = (int) $this->input->get('class_id');
         $sectionID = (int) $this->input->get('section_id');
+        $subjectID = (int) $this->input->get('subject_id');
+        $scopeType = trim((string) $this->input->get('scope_type'));
+        $teacherScoped = is_teacher_loggedin();
 
         $this->data['branch_id'] = $branchID;
         $this->data['from_date'] = $from;
         $this->data['to_date'] = $to;
         $this->data['class_id'] = $classID;
         $this->data['section_id'] = $sectionID;
+        $this->data['subject_id'] = $subjectID;
+        $this->data['scope_type'] = $scopeType;
+        $this->data['teacher_scoped'] = $teacherScoped;
         $this->digital_diary_populate_class_section_filters($branchID, $classID);
 
         $subjects = array();
@@ -4677,21 +5201,50 @@ class Digital_diary extends Admin_Controller
         $todayPerformance = '—';
 
         if (!empty($classID) && !empty($sectionID)) {
-            if (is_teacher_loggedin() && !$this->digital_diary_teacher_may_use_class_section($branchID, $classID, $sectionID)) {
-                access_denied();
-            }
-            $subjectSummary = $this->digital_diary_model->getLessonSummaryByClassSection($classID, $sectionID, $branchID);
-            foreach ($subjectSummary as $subjRow) {
-                $sid = (int) $subjRow['subject_id'];
-                if (is_teacher_loggedin() && !$this->digital_diary_teacher_may_view_subject($classID, $sectionID, $sid)) {
-                    continue;
+            if ($teacherScoped) {
+                if ($subjectID <= 0 || !in_array($scopeType, array('assigned', 'class_teacher'), true)) {
+                    show_404();
                 }
-                $lpct = $this->digital_diary_model->getLessonSyllabusCompletionPercent($classID, $sectionID, $sid, $branchID, $to);
-                $subjects[] = array(
-                    'subject_id' => $sid,
-                    'subject_name' => isset($subjRow['subject_name']) ? $subjRow['subject_name'] : '',
-                    'syllabus_percent' => $lpct['syllabus_percentage'],
+                $teacherScopes = $this->digital_diary_teacher_non_performer_report_scopes(
+                    $branchID,
+                    $this->app_lib->get_class_teacher_sections($branchID)
                 );
+                $allowedSubjectDetails = array();
+                foreach ($teacherScopes as $scope) {
+                    if ((int) $scope['class_id'] !== $classID || (int) $scope['section_id'] !== $sectionID || $scope['scope_type'] !== $scopeType) {
+                        continue;
+                    }
+                    if ($scopeType === 'assigned' && (int) $scope['subject_id'] !== $subjectID) {
+                        continue;
+                    }
+                    $sid = (int) $scope['subject_id'];
+                    $allowedSubjectDetails[$sid] = (string) $scope['subject_name'];
+                }
+                if (!isset($allowedSubjectDetails[$subjectID])) {
+                    access_denied();
+                }
+                if ($scopeType === 'assigned') {
+                    $allowedSubjectDetails = array($subjectID => $allowedSubjectDetails[$subjectID]);
+                }
+                foreach ($allowedSubjectDetails as $sid => $subjectName) {
+                    $lpct = $this->digital_diary_model->getLessonSyllabusCompletionPercent($classID, $sectionID, $sid, $branchID, $to);
+                    $subjects[] = array(
+                        'subject_id' => (int) $sid,
+                        'subject_name' => $subjectName,
+                        'syllabus_percent' => $lpct['syllabus_percentage'],
+                    );
+                }
+            } else {
+                $subjectSummary = $this->digital_diary_model->getLessonSummaryByClassSection($classID, $sectionID, $branchID);
+                foreach ($subjectSummary as $subjRow) {
+                    $sid = (int) $subjRow['subject_id'];
+                    $lpct = $this->digital_diary_model->getLessonSyllabusCompletionPercent($classID, $sectionID, $sid, $branchID, $to);
+                    $subjects[] = array(
+                        'subject_id' => $sid,
+                        'subject_name' => isset($subjRow['subject_name']) ? $subjRow['subject_name'] : '',
+                        'syllabus_percent' => $lpct['syllabus_percentage'],
+                    );
+                }
             }
 
             // Build dates between from and to (inclusive).
@@ -4980,6 +5533,9 @@ class Digital_diary extends Admin_Controller
         if (empty($branchID)) {
             $branchID = get_loggedin_branch_id();
         }
+        if (is_teacher_loggedin()) {
+            $branchID = get_loggedin_branch_id();
+        }
 
         $from = $this->input->get('from');
         $to = $this->input->get('to');
@@ -4999,68 +5555,327 @@ class Digital_diary extends Admin_Controller
         $this->data['from_date'] = $from;
         $this->data['to_date'] = $to;
 
-        $classes = $this->digital_diary_teacher_allowed_class_map($branchID);
-
-        // Subject headers (teacher: only subjects they teach).
-        $subjects = $this->digital_diary_teacher_report_subjects($branchID);
+        $classTeacherSections = is_teacher_loggedin()
+            ? $this->app_lib->get_class_teacher_sections($branchID)
+            : array();
+        $teacherScopes = is_teacher_loggedin()
+            ? $this->digital_diary_teacher_non_performer_report_scopes($branchID, $classTeacherSections)
+            : array();
+        $classes = array();
+        $classSections = array();
+        $subjectSections = array();
+        $subjectSectionsByType = array(
+            'assigned' => array(),
+            'class_teacher' => array(),
+        );
+        if (is_teacher_loggedin()) {
+            if (is_array($classTeacherSections)) {
+                foreach ($classTeacherSections as $classID => $sectionIDs) {
+                    $classID = (int) $classID;
+                    $classes[$classID] = get_type_name_by_id('class', $classID);
+                    foreach ($sectionIDs as $sectionID) {
+                        $sectionID = (int) $sectionID;
+                        $classSections[$classID][$sectionID] = $sectionID;
+                    }
+                }
+            }
+            foreach ($teacherScopes as $scope) {
+                $classID = (int) $scope['class_id'];
+                $sectionID = (int) $scope['section_id'];
+                $subjectID = (int) $scope['subject_id'];
+                $classes[$classID] = $scope['class_name'];
+                $classSections[$classID][$sectionID] = $sectionID;
+                $subjectKey = $classID . ':' . $subjectID;
+                $scopeType = isset($scope['scope_type']) && $scope['scope_type'] === 'class_teacher'
+                    ? 'class_teacher'
+                    : 'assigned';
+                $subjectSections[$subjectKey][$sectionID] = $sectionID;
+                $subjectSectionsByType[$scopeType][$subjectKey][$sectionID] = $sectionID;
+            }
+            ksort($classes, SORT_NUMERIC);
+        } else {
+            $classes = $this->digital_diary_teacher_allowed_class_map($branchID);
+        }
+        $subjects = $this->digital_diary_teacher_report_subjects($branchID, $teacherScopes);
         $this->data['np_subjects'] = $subjects;
+        $teacherSubjectGroups = array(
+            'assigned' => array(),
+            'class_teacher' => array(),
+        );
+        foreach ($teacherScopes as $scope) {
+            $scopeType = isset($scope['scope_type']) && $scope['scope_type'] === 'class_teacher'
+                ? 'class_teacher'
+                : 'assigned';
+            $teacherSubjectGroups[$scopeType][(int) $scope['subject_id']] = true;
+        }
+        $this->data['np_teacher_subject_groups'] = $teacherSubjectGroups;
+        $this->data['np_teacher_names_by_scope'] = $this->digital_diary_teacher_report_subject_teacher_names($branchID, $teacherScopes);
 
         $rows = array();
         $totalsPerSubject = array();
+        $totalsPerSubjectByType = array(
+            'assigned' => array(),
+            'class_teacher' => array(),
+        );
         $totalStudentsAll = 0;
+        $totalNonPerformers = 0;
+        $studentList = array();
+        $allocatedStudentIDs = array();
+        $nonPerformerStudentIDs = array();
+        $hasWorkReportTable = $this->db->table_exists('digital_diary_student_work_report');
+        $countSubjectNonPerformers = function ($classID, $subjectID, $sectionIDs) use ($branchID, $from, $to) {
+            $this->db->select('COUNT(DISTINCT swr.student_id) as cnt', false);
+            $this->db->from('digital_diary_student_work_report as swr');
+            $this->db->join(
+                'enroll as e',
+                'e.student_id = swr.student_id AND e.class_id = swr.class_id AND e.section_id = swr.section_id AND e.session_id = swr.session_id AND e.branch_id = swr.branch_id',
+                'inner'
+            );
+            $this->db->join('student as st', 'st.id = swr.student_id', 'inner');
+            $this->db->where('swr.class_id', (int) $classID);
+            $this->db->where('swr.subject_id', (int) $subjectID);
+            $this->db->where('swr.work_date >=', $from);
+            $this->db->where('swr.work_date <=', $to);
+            $this->db->where('swr.session_id', (int) get_session_id());
+            $this->db->where('swr.branch_id', (int) $branchID);
+            $this->db->where('st.active', 1);
+            if (is_teacher_loggedin()) {
+                $this->db->where_in('swr.section_id', $sectionIDs);
+            }
+            $this->db->where('(swr.fair_copy = 0 OR swr.writing_work = 0 OR swr.learning_work = 0)', null, false);
+            $row = $this->db->get()->row_array();
+            return !empty($row['cnt']) ? (int) $row['cnt'] : 0;
+        };
 
-        if ($this->db->table_exists('digital_diary_student_work_report') && !empty($subjects)) {
+        if (is_teacher_loggedin() && !empty($classSections)) {
+            $this->db->distinct();
+            $this->db->select('e.student_id');
+            $this->db->from('enroll as e');
+            $this->db->join('student as st', 'st.id = e.student_id', 'inner');
+            $this->db->where('e.branch_id', (int) $branchID);
+            $this->db->where('e.session_id', (int) get_session_id());
+            $this->db->where('st.active', 1);
+            $this->db->group_start();
+            foreach ($classSections as $classID => $sectionIDs) {
+                foreach ($sectionIDs as $sectionID) {
+                    $this->db->or_group_start();
+                    $this->db->where('e.class_id', (int) $classID);
+                    $this->db->where('e.section_id', (int) $sectionID);
+                    $this->db->group_end();
+                }
+            }
+            $this->db->group_end();
+            foreach ($this->db->get()->result_array() as $allocatedStudent) {
+                $allocatedStudentIDs[(int) $allocatedStudent['student_id']] = true;
+            }
+            $totalStudentsAll = count($allocatedStudentIDs);
+        }
+
+        if ($hasWorkReportTable && (!empty($subjects) || is_teacher_loggedin())) {
             foreach ($classes as $cid => $cname) {
                 $cid = (int) $cid;
                 if ($cid <= 0) {
                     continue;
                 }
-                // Total students in this class (all sections).
-                $this->db->from('enroll');
-                $this->db->where('class_id', $cid);
-                if (!empty($branchID)) {
-                    $this->db->where('branch_id', (int) $branchID);
+                $sectionIds = is_teacher_loggedin() && isset($classSections[$cid])
+                    ? array_values($classSections[$cid])
+                    : array();
+                if (is_teacher_loggedin() && empty($sectionIds)) {
+                    continue;
                 }
-                $this->db->where('session_id', get_session_id());
-                $totalStudents = (int) $this->db->count_all_results();
-                $totalStudentsAll += $totalStudents;
+
+                $this->db->select('COUNT(DISTINCT e.student_id) as total', false);
+                $this->db->from('enroll as e');
+                $this->db->join('student as st', 'st.id = e.student_id', 'inner');
+                $this->db->where('e.class_id', $cid);
+                if (!empty($branchID)) {
+                    $this->db->where('e.branch_id', (int) $branchID);
+                }
+                $this->db->where('e.session_id', get_session_id());
+                $this->db->where('st.active', 1);
+                if (is_teacher_loggedin()) {
+                    $this->db->where_in('e.section_id', $sectionIds);
+                }
+                $studentCountRow = $this->db->get()->row_array();
+                $totalStudents = !empty($studentCountRow['total']) ? (int) $studentCountRow['total'] : 0;
+                if (!is_teacher_loggedin()) {
+                    $totalStudentsAll += $totalStudents;
+                }
 
                 $subjectCounts = array();
+                $assignedSubjectIDs = array();
+                $subjectCountsByType = array(
+                    'assigned' => array(),
+                    'class_teacher' => array(),
+                );
+                $subjectIDsByType = array(
+                    'assigned' => array(),
+                    'class_teacher' => array(),
+                );
+                $nonPerformerSum = 0;
                 foreach ($subjects as $sub) {
                     $sid = (int) $sub['id'];
-                    // Count distinct students with any incomplete work in date range.
-                    $sql = "SELECT COUNT(DISTINCT swr.student_id) AS cnt
-                            FROM digital_diary_student_work_report swr
-                            JOIN enroll e ON e.student_id = swr.student_id
-                            WHERE swr.class_id = ? AND swr.subject_id = ? AND swr.work_date >= ? AND swr.work_date <= ?
-                              AND e.class_id = swr.class_id";
-                    $params = array($cid, $sid, $from, $to);
-                    if (!empty($branchID)) {
-                        $sql .= " AND swr.branch_id = ? AND e.branch_id = ?";
-                        $params[] = (int) $branchID;
-                        $params[] = (int) $branchID;
+                    $subjectKey = $cid . ':' . $sid;
+                    $cellSections = isset($subjectSections[$subjectKey])
+                        ? array_values($subjectSections[$subjectKey])
+                        : array();
+                    if (is_teacher_loggedin() && empty($cellSections)) {
+                        $subjectCounts[$sid] = 0;
+                        if (!isset($totalsPerSubject[$sid])) {
+                            $totalsPerSubject[$sid] = 0;
+                        }
+                        continue;
                     }
-                    $sql .= " AND (swr.fair_copy = 0 OR swr.writing_work = 0 OR swr.learning_work = 0)";
-                    $row = $this->db->query($sql, $params)->row_array();
-                    $cnt = !empty($row['cnt']) ? (int) $row['cnt'] : 0;
+                    $assignedSubjectIDs[] = $sid;
+                    $cnt = $countSubjectNonPerformers($cid, $sid, $cellSections);
                     $subjectCounts[$sid] = $cnt;
+                    $nonPerformerSum += $cnt;
                     if (!isset($totalsPerSubject[$sid])) {
                         $totalsPerSubject[$sid] = 0;
                     }
                     $totalsPerSubject[$sid] += $cnt;
+
+                    foreach (array('assigned', 'class_teacher') as $scopeType) {
+                        $typeSections = isset($subjectSectionsByType[$scopeType][$subjectKey])
+                            ? array_values($subjectSectionsByType[$scopeType][$subjectKey])
+                            : array();
+                        if (is_teacher_loggedin() && empty($typeSections)) {
+                            continue;
+                        }
+                        $subjectIDsByType[$scopeType][] = $sid;
+                        $typeCount = is_teacher_loggedin()
+                            ? $countSubjectNonPerformers($cid, $sid, $typeSections)
+                            : $cnt;
+                        $subjectCountsByType[$scopeType][$sid] = $typeCount;
+                        if (!isset($totalsPerSubjectByType[$scopeType][$sid])) {
+                            $totalsPerSubjectByType[$scopeType][$sid] = 0;
+                        }
+                        $totalsPerSubjectByType[$scopeType][$sid] += $typeCount;
+                    }
                 }
                 $rows[] = array(
                     'class_id' => $cid,
                     'class_name' => $cname,
                     'total_students' => $totalStudents,
                     'subjects' => $subjectCounts,
+                    'assigned_subject_ids' => $assignedSubjectIDs,
+                    'subject_counts_by_type' => $subjectCountsByType,
+                    'subject_ids_by_type' => $subjectIDsByType,
+                    'non_performer_sum' => $nonPerformerSum,
+                    'is_class_teacher' => is_teacher_loggedin() && !empty($classTeacherSections[$cid]),
+                );
+            }
+        }
+
+        if ($hasWorkReportTable && (!is_teacher_loggedin() || !empty($teacherScopes))) {
+            $this->db->distinct();
+            $this->db->select('swr.class_id, c.name as class_name, swr.section_id, sec.name as section_name, swr.subject_id, sb.name as subject_name, st.id as student_id, st.register_no, e.roll, CONCAT_WS(" ", st.first_name, st.last_name) as fullname', false);
+            $this->db->from('digital_diary_student_work_report as swr');
+            $this->db->join('student as st', 'st.id = swr.student_id', 'inner');
+            $this->db->join(
+                'enroll as e',
+                'e.student_id = swr.student_id AND e.class_id = swr.class_id AND e.section_id = swr.section_id AND e.session_id = swr.session_id AND e.branch_id = swr.branch_id',
+                'inner'
+            );
+            $this->db->join('class as c', 'c.id = swr.class_id', 'left');
+            $this->db->join('section as sec', 'sec.id = swr.section_id', 'left');
+            $this->db->join('subject as sb', 'sb.id = swr.subject_id', 'left');
+            $this->db->where('swr.branch_id', (int) $branchID);
+            $this->db->where('swr.session_id', (int) get_session_id());
+            $this->db->where('swr.work_date >=', $from);
+            $this->db->where('swr.work_date <=', $to);
+            $this->db->where('st.active', 1);
+            $this->db->where('(swr.fair_copy = 0 OR swr.writing_work = 0 OR swr.learning_work = 0)', null, false);
+            if (is_teacher_loggedin()) {
+                $this->db->group_start();
+                foreach ($teacherScopes as $scope) {
+                    $this->db->or_group_start();
+                    $this->db->where('swr.class_id', $scope['class_id']);
+                    $this->db->where('swr.section_id', $scope['section_id']);
+                    $this->db->where('swr.subject_id', $scope['subject_id']);
+                    $this->db->group_end();
+                }
+                $this->db->group_end();
+            }
+            $this->db->order_by('c.name', 'ASC');
+            $this->db->order_by('sec.name', 'ASC');
+            $this->db->order_by('sb.name', 'ASC');
+            $this->db->order_by('e.roll', 'ASC');
+            $this->db->order_by('st.first_name', 'ASC');
+            $studentList = $this->db->get()->result_array();
+            foreach ($studentList as $studentRow) {
+                $nonPerformerStudentIDs[(int) $studentRow['student_id']] = true;
+            }
+            $totalNonPerformers = count($nonPerformerStudentIDs);
+        }
+
+        $teacherScopeOverview = array();
+        if (is_teacher_loggedin()) {
+            foreach (array('assigned', 'class_teacher') as $scopeType) {
+                $sectionPairs = array();
+                $scopeLookup = array();
+                $scopeSubjectIDs = array();
+                foreach ($teacherScopes as $scope) {
+                    if ($scope['scope_type'] !== $scopeType) {
+                        continue;
+                    }
+                    $classID = (int) $scope['class_id'];
+                    $sectionID = (int) $scope['section_id'];
+                    $subjectID = (int) $scope['subject_id'];
+                    $sectionPairs[$classID . ':' . $sectionID] = array($classID, $sectionID);
+                    $scopeLookup[$classID . ':' . $sectionID . ':' . $subjectID] = true;
+                    $scopeSubjectIDs[$subjectID] = true;
+                }
+
+                $scopeStudentIDs = array();
+                if (!empty($sectionPairs)) {
+                    $this->db->distinct();
+                    $this->db->select('e.student_id');
+                    $this->db->from('enroll as e');
+                    $this->db->join('student as st', 'st.id = e.student_id', 'inner');
+                    $this->db->where('e.branch_id', (int) $branchID);
+                    $this->db->where('e.session_id', (int) get_session_id());
+                    $this->db->where('st.active', 1);
+                    $this->db->group_start();
+                    foreach ($sectionPairs as $pair) {
+                        $this->db->or_group_start();
+                        $this->db->where('e.class_id', $pair[0]);
+                        $this->db->where('e.section_id', $pair[1]);
+                        $this->db->group_end();
+                    }
+                    $this->db->group_end();
+                    foreach ($this->db->get()->result_array() as $scopeStudent) {
+                        $scopeStudentIDs[(int) $scopeStudent['student_id']] = true;
+                    }
+                }
+
+                $scopeNonPerformerIDs = array();
+                $scopeClassesWithIssues = array();
+                foreach ($studentList as $studentRow) {
+                    $scopeKey = (int) $studentRow['class_id'] . ':' . (int) $studentRow['section_id'] . ':' . (int) $studentRow['subject_id'];
+                    if (!isset($scopeLookup[$scopeKey])) {
+                        continue;
+                    }
+                    $scopeNonPerformerIDs[(int) $studentRow['student_id']] = true;
+                    $scopeClassesWithIssues[(int) $studentRow['class_id']] = true;
+                }
+
+                $teacherScopeOverview[$scopeType] = array(
+                    'students' => count($scopeStudentIDs),
+                    'non_performers' => count($scopeNonPerformerIDs),
+                    'classes_with_issues' => count($scopeClassesWithIssues),
+                    'subjects_tracked' => count($scopeSubjectIDs),
                 );
             }
         }
 
         $this->data['np_rows'] = $rows;
         $this->data['np_totals_per_subject'] = $totalsPerSubject;
+        $this->data['np_totals_per_subject_type'] = $totalsPerSubjectByType;
         $this->data['np_total_students_all'] = $totalStudentsAll;
+        $this->data['np_total_non_performers'] = $totalNonPerformers;
+        $this->data['np_teacher_scope_overview'] = $teacherScopeOverview;
+        $this->data['np_student_list'] = $studentList;
 
         $this->data['title'] = 'Non Performer Report';
         $this->data['sub_page'] = 'digital_diary/non_performer_report';
@@ -5080,6 +5895,9 @@ class Digital_diary extends Admin_Controller
         if (empty($branchID)) {
             $branchID = get_loggedin_branch_id();
         }
+        if (is_teacher_loggedin()) {
+            $branchID = get_loggedin_branch_id();
+        }
         $branchID = (int) $branchID;
 
         $from = $this->input->get('from');
@@ -5097,13 +5915,61 @@ class Digital_diary extends Admin_Controller
 
         $classID = (int) $this->input->get('class_id');
         $subjectID = (int) $this->input->get('subject_id');
+        $scopeType = trim((string) $this->input->get('scope_type'));
 
         if ($classID <= 0 || $subjectID <= 0) {
             show_404();
             return;
         }
-        if (is_teacher_loggedin() && !$this->digital_diary_teacher_may_access_np_cell($classID, $subjectID)) {
-            access_denied();
+        if ($scopeType !== '' && !in_array($scopeType, array('assigned', 'class_teacher'), true)) {
+            show_404();
+            return;
+        }
+        $allowedSections = array();
+        if (is_teacher_loggedin()) {
+            $sectionSet = array();
+            $classTeacherSections = $this->app_lib->get_class_teacher_sections($branchID);
+            foreach ($this->digital_diary_teacher_non_performer_report_scopes($branchID, $classTeacherSections) as $scope) {
+                if ((int) $scope['class_id'] === $classID && (int) $scope['subject_id'] === $subjectID) {
+                    if ($scopeType !== '' && $scope['scope_type'] !== $scopeType) {
+                        continue;
+                    }
+                    $sectionSet[(int) $scope['section_id']] = (int) $scope['section_id'];
+                }
+            }
+            if (empty($sectionSet)) {
+                access_denied();
+            }
+            $allowedSections = array_values($sectionSet);
+        }
+
+        $subjectTeacherNames = array();
+        foreach (array(
+            array('subject_assign', 'sa'),
+            array('timetable_class', 'tc'),
+        ) as $source) {
+            $table = $source[0];
+            $alias = $source[1];
+            if (!$this->db->table_exists($table)) {
+                continue;
+            }
+            $this->db->distinct();
+            $this->db->select('staff.id, staff.name');
+            $this->db->from($table . ' as ' . $alias);
+            $this->db->join('staff', 'staff.id = ' . $alias . '.teacher_id', 'inner');
+            $this->db->where($alias . '.branch_id', $branchID);
+            $this->db->where($alias . '.session_id', (int) get_session_id());
+            $this->db->where($alias . '.class_id', $classID);
+            $this->db->where($alias . '.subject_id', $subjectID);
+            if (is_teacher_loggedin()) {
+                $this->db->where_in($alias . '.section_id', $allowedSections);
+            }
+            if ($table === 'timetable_class') {
+                $this->db->where($alias . '.break', 0);
+            }
+            foreach ($this->db->get()->result_array() as $teacherRow) {
+                $subjectTeacherNames[(int) $teacherRow['id']] = (string) $teacherRow['name'];
+            }
         }
 
         $this->data['branch_id'] = $branchID;
@@ -5112,19 +5978,31 @@ class Digital_diary extends Admin_Controller
         $this->data['to_date'] = $to;
         $this->data['class_id'] = $classID;
         $this->data['subject_id'] = $subjectID;
+        $this->data['scope_type'] = $scopeType;
         $this->data['class_name'] = get_type_name_by_id('class', $classID);
         $this->data['subject_name'] = get_type_name_by_id('subject', $subjectID);
+        $this->data['subject_teacher_names'] = array_values($subjectTeacherNames);
 
         $detailRows = array();
         if ($this->db->table_exists('digital_diary_student_work_report')) {
             $sessionID = (int) get_session_id();
             $this->db->from('digital_diary_student_work_report swr');
+            $this->db->join('student as current_student', 'current_student.id = swr.student_id', 'inner');
+            $this->db->join(
+                'enroll as current_enroll',
+                'current_enroll.student_id = swr.student_id AND current_enroll.class_id = swr.class_id AND current_enroll.section_id = swr.section_id AND current_enroll.session_id = swr.session_id AND current_enroll.branch_id = swr.branch_id',
+                'inner'
+            );
             $this->db->where('swr.branch_id', $branchID);
             $this->db->where('swr.session_id', $sessionID);
             $this->db->where('swr.class_id', $classID);
             $this->db->where('swr.subject_id', $subjectID);
             $this->db->where('swr.work_date >=', $from);
             $this->db->where('swr.work_date <=', $to);
+            $this->db->where('current_student.active', 1);
+            if (is_teacher_loggedin()) {
+                $this->db->where_in('swr.section_id', $allowedSections);
+            }
             $this->db->where('(swr.fair_copy = 0 OR swr.writing_work = 0 OR swr.learning_work = 0)');
             $swrRows = $this->db->get()->result_array();
 
@@ -5172,13 +6050,20 @@ class Digital_diary extends Admin_Controller
 
             if (!empty($agg)) {
                 $ids = array_keys($agg);
-                $this->db->select('s.id as student_id, s.register_no, e.roll, CONCAT_WS(" ", s.first_name, s.last_name) as fullname');
+                $this->db->select('s.id as student_id, s.register_no, e.roll, sec.name as section_name, p.mobileno as parent_mobile, CONCAT_WS(" ", s.first_name, s.last_name) as fullname');
                 $this->db->from('enroll e');
                 $this->db->join('student s', 's.id = e.student_id', 'inner');
+                $this->db->join('section sec', 'sec.id = e.section_id', 'left');
+                $this->db->join('parent p', 'p.id = s.parent_id', 'left');
                 $this->db->where('e.class_id', $classID);
                 $this->db->where('e.branch_id', $branchID);
                 $this->db->where('e.session_id', $sessionID);
+                $this->db->where('s.active', 1);
+                if (is_teacher_loggedin()) {
+                    $this->db->where_in('e.section_id', $allowedSections);
+                }
                 $this->db->where_in('s.id', $ids);
+                $this->db->order_by('sec.name', 'ASC');
                 $this->db->order_by('e.roll', 'ASC');
                 $this->db->order_by('s.first_name', 'ASC');
                 $stRows = $this->db->get()->result_array();
@@ -5198,6 +6083,8 @@ class Digital_diary extends Admin_Controller
                         'student_id' => $sid,
                         'register_no' => isset($sr['register_no']) ? (string) $sr['register_no'] : '',
                         'roll' => isset($sr['roll']) ? $sr['roll'] : '',
+                        'section_name' => isset($sr['section_name']) ? (string) $sr['section_name'] : '',
+                        'parent_mobile' => isset($sr['parent_mobile']) ? (string) $sr['parent_mobile'] : '',
                         'fullname' => isset($sr['fullname']) ? (string) $sr['fullname'] : '',
                         'fair_notebook' => $a['fair'],
                         'written_work' => $a['writing'],
@@ -5278,32 +6165,16 @@ class Digital_diary extends Admin_Controller
         $studentID = (int) $this->input->get('student_id');
 
         if (is_teacher_loggedin()) {
-            $assigned = $this->app_lib->get_ownClassSection();
-            $classOptions = array('' => translate('select'));
-            if (is_array($assigned) && !empty($assigned)) {
-                foreach ($assigned as $classKey => $sections) {
-                    $classOptions[$classKey] = get_type_name_by_id('class', $classKey);
-                }
-            }
-            if (count($classOptions) <= 1 && !empty($branchID)) {
-                $classOptions = $this->app_lib->getClass($branchID);
-            }
-            $this->data['class_options'] = $classOptions;
-            $restricted = is_array($assigned) && !empty($assigned);
-            $section_options = array('' => translate('select'));
-            if ($restricted && !empty($classID) && isset($assigned[$classID])) {
-                foreach ($assigned[$classID] as $sid) {
-                    $section_options[$sid] = get_type_name_by_id('section', $sid);
-                }
-            } elseif (!empty($classID)) {
-                $section_options = $this->app_lib->getSections($classID, false);
-            } else {
-                $section_options = array('' => translate('select_class_first'));
-            }
-            $this->data['section_options'] = $section_options;
+            $this->data['class_options'] = $this->app_lib->get_class_teacher_class_options($branchID);
+            $this->data['section_options'] = $this->app_lib->get_class_teacher_section_options($classID);
         } else {
             $this->data['class_options'] = !empty($branchID) ? $this->app_lib->getClass($branchID) : array('' => translate('select'));
             $this->data['section_options'] = !empty($classID) ? $this->app_lib->getSections($classID, false) : array('' => translate('select_class_first'));
+        }
+
+        if (is_teacher_loggedin() && $classID > 0 && $sectionID > 0
+            && !$this->digital_diary_teacher_is_class_teacher_for_section($classID, $sectionID)) {
+            access_denied();
         }
 
         $subjects_for_grid = array();
@@ -5312,9 +6183,6 @@ class Digital_diary extends Admin_Controller
             foreach ($allSubQ->result() as $srow) {
                 if (!empty($srow->subject_id)) {
                     $subId = (int) $srow->subject_id;
-                    if (is_teacher_loggedin() && !$this->digital_diary_teacher_may_view_subject($classID, $sectionID, $subId)) {
-                        continue;
-                    }
                     $subjects_for_grid[] = array(
                         'subject_id' => $subId,
                         'subject_name' => $srow->subjectname,
@@ -5351,26 +6219,24 @@ class Digital_diary extends Admin_Controller
         $student_valid = false;
 
         if ($table_ok && !empty($branchID) && !empty($classID) && !empty($sectionID)) {
-            if (!is_teacher_loggedin() || $this->digital_diary_teacher_may_use_class_section($branchID, $classID, $sectionID)) {
-                $students = $this->digital_diary_model->getStudentsForStudentWorkReport($branchID, $classID, $sectionID);
-                foreach ($students as $st) {
-                    $rollStr = isset($st['roll']) ? (string) $st['roll'] : '';
-                    if ($searchQ === '' || stripos($st['fullname'], $searchQ) !== false || stripos($rollStr, $searchQ) !== false) {
-                        $student_options[$st['student_id']] = $st['fullname'];
-                    }
+            $students = $this->digital_diary_model->getStudentsForStudentWorkReport($branchID, $classID, $sectionID);
+            foreach ($students as $st) {
+                $rollStr = isset($st['roll']) ? (string) $st['roll'] : '';
+                if ($searchQ === '' || stripos($st['fullname'], $searchQ) !== false || stripos($rollStr, $searchQ) !== false) {
+                    $student_options[$st['student_id']] = $st['fullname'];
                 }
-                if ($studentID > 0) {
-                    foreach ($students as $st) {
-                        if ((int) $st['student_id'] === $studentID) {
-                            $student_valid = true;
-                            $student_info = array(
-                                'name' => $st['fullname'],
-                                'roll' => isset($st['roll']) ? $st['roll'] : '',
-                                'class_name' => get_type_name_by_id('class', $classID),
-                                'section_name' => get_type_name_by_id('section', $sectionID),
-                            );
-                            break;
-                        }
+            }
+            if ($studentID > 0) {
+                foreach ($students as $st) {
+                    if ((int) $st['student_id'] === $studentID) {
+                        $student_valid = true;
+                        $student_info = array(
+                            'name' => $st['fullname'],
+                            'roll' => isset($st['roll']) ? $st['roll'] : '',
+                            'class_name' => get_type_name_by_id('class', $classID),
+                            'section_name' => get_type_name_by_id('section', $sectionID),
+                        );
+                        break;
                     }
                 }
             }
@@ -5607,6 +6473,23 @@ class Digital_diary extends Admin_Controller
         }
         $classID = (int) $this->input->get('class_id');
         $sectionID = (int) $this->input->get('section_id');
+        $periodScoped = false;
+        $periodSubjectID = 0;
+        $timetableID = (int) $this->input->get('timetable_id');
+        if (is_teacher_loggedin() && $timetableID > 0) {
+            $periodScope = $this->digital_diary_get_teacher_timetable_scope($timetableID, $branchID, $reportDate);
+            if ($periodScope === false) {
+                access_denied();
+            }
+            $classID = (int) $periodScope->class_id;
+            $sectionID = (int) $periodScope->section_id;
+            $periodSubjectID = (int) $periodScope->subject_id;
+            $periodScoped = true;
+        }
+        if (is_teacher_loggedin() && $classID > 0 && $sectionID > 0 && !$periodScoped
+            && !$this->subject_model->getClassTeacherByClassSection($classID, $sectionID)) {
+            access_denied();
+        }
 
         $teacher_class_boxes = array();
         $teacher_week_days = array();
@@ -5619,21 +6502,8 @@ class Digital_diary extends Admin_Controller
             } else {
                 $teacher_class_boxes = $this->digital_diary_teacher_assigned_class_boxes($branchID, $reportDate);
             }
-            $assigned = $this->app_lib->get_ownClassSection();
-            $classOptions = array('' => translate('select'));
-            if (is_array($assigned) && !empty($assigned)) {
-                foreach ($assigned as $classKey => $sections) {
-                    $classOptions[$classKey] = get_type_name_by_id('class', $classKey);
-                }
-            }
-            if (count($classOptions) <= 1 && !empty($teacher_class_boxes)) {
-                foreach ($teacher_class_boxes as $box) {
-                    $classOptions[(int) $box['class_id']] = $box['class_name'];
-                }
-            }
-            if (count($classOptions) <= 1 && !empty($branchID)) {
-                $classOptions = $this->app_lib->getClass($branchID);
-            }
+            $assigned = $this->app_lib->get_class_teacher_sections($branchID);
+            $classOptions = $this->app_lib->get_class_teacher_class_options($branchID);
             $this->data['class_options'] = $classOptions;
             $restricted = is_array($assigned) && !empty($assigned);
             $section_options = array('' => translate('select'));
@@ -5673,6 +6543,18 @@ class Digital_diary extends Admin_Controller
                         'subject_name' => $srow->subjectname,
                     );
                 }
+            }
+        }
+        if ($periodScoped && !$this->subject_model->getClassTeacherByClassSection($classID, $sectionID)) {
+            $subjects_for_grid = array_values(array_filter($subjects_for_grid, function ($subject) use ($periodSubjectID) {
+                return (int) $subject['subject_id'] === $periodSubjectID;
+            }));
+            if (empty($subjects_for_grid)) {
+                $periodSubjectName = get_type_name_by_id('subject', $periodSubjectID);
+                $subjects_for_grid[] = array(
+                    'subject_id' => $periodSubjectID,
+                    'subject_name' => (string) $periodSubjectName,
+                );
             }
         }
 
@@ -5716,6 +6598,9 @@ class Digital_diary extends Admin_Controller
                 $swr_subject_can_edit[$sid] = true;
             } elseif ($is_class_teacher) {
                 $swr_subject_can_edit[$sid] = true;
+            } elseif ($periodScoped) {
+                $swr_subject_can_edit[$sid] = $sid === $periodSubjectID
+                    && $this->digital_diary_teacher_may_view_subject($classID, $sectionID, $sid);
             } else {
                 $swr_subject_can_edit[$sid] = in_array($sid, $teacher_subject_ids, true);
             }
@@ -5729,7 +6614,7 @@ class Digital_diary extends Admin_Controller
         $discipline_display_map = array();
         $table_ok = $this->db->table_exists('digital_diary_student_work_report');
         if ($table_ok && !empty($branchID) && !empty($classID) && !empty($sectionID) && !empty($subjects_for_grid)) {
-            if (!is_teacher_loggedin() || $this->digital_diary_teacher_may_use_class_section($branchID, $classID, $sectionID)) {
+            if (!is_teacher_loggedin() || $periodScoped || $this->digital_diary_teacher_may_use_class_section($branchID, $classID, $sectionID)) {
                 $students = $this->digital_diary_model->getStudentsForStudentWorkReport($branchID, $classID, $sectionID);
                 foreach ($subjects_for_grid as $sg) {
                     $subId = (int) $sg['subject_id'];
@@ -5804,6 +6689,13 @@ class Digital_diary extends Admin_Controller
                 );
             }
         }
+        if ($periodScoped && !$is_class_teacher) {
+            foreach ($submission_prefills as $studentID => $studentPrefills) {
+                $submission_prefills[$studentID] = isset($studentPrefills[$periodSubjectID])
+                    ? array($periodSubjectID => $studentPrefills[$periodSubjectID])
+                    : array();
+            }
+        }
 
         $this->data['report_date'] = $reportDate;
         $this->data['filter_class_id'] = $classID;
@@ -5816,7 +6708,11 @@ class Digital_diary extends Admin_Controller
         $this->data['show_discipline'] = $show_discipline;
         $this->data['can_edit_discipline'] = $can_edit_discipline;
         $this->data['is_class_teacher'] = $is_class_teacher;
-        $this->data['can_final_submit'] = $this->digital_diary_teacher_may_final_submit($classID, $sectionID);
+        $this->data['period_scoped'] = $periodScoped;
+        $this->data['timetable_id'] = $periodScoped ? $timetableID : 0;
+        $this->data['period_subject_id'] = $periodScoped ? $periodSubjectID : 0;
+        $this->data['can_final_submit'] = !$periodScoped
+            && $this->digital_diary_teacher_may_final_submit($classID, $sectionID);
         $this->data['can_unlock_final_day'] = is_superadmin_loggedin() || is_admin_loggedin();
         $this->data['swr_table_ok'] = $table_ok;
         $this->data['is_day_final'] = $is_day_final;
@@ -5834,6 +6730,9 @@ class Digital_diary extends Admin_Controller
             if (!empty($prevMap)) {
                 $prevDate = $tryDate;
                 foreach ($prevMap as $psid => $psaved) {
+                    if ($periodScoped && !$is_class_teacher && (int) $psid !== $periodSubjectID) {
+                        continue;
+                    }
                     if (is_teacher_loggedin() && !$this->digital_diary_teacher_may_view_subject($classID, $sectionID, (int) $psid)) {
                         continue;
                     }
@@ -5907,6 +6806,7 @@ class Digital_diary extends Admin_Controller
         if ($this->input->method() !== 'post') {
             show_404();
         }
+
         if (!$this->db->table_exists('digital_diary_student_work_report')) {
             echo json_encode(array('status' => 'fail', 'error' => array('form_error' => 'Run application/sql/digital_diary_student_work_report.sql')));
             return;
@@ -5927,9 +6827,30 @@ class Digital_diary extends Admin_Controller
         $sectionID = (int) $this->input->post('section_id');
         $workDate = date('Y-m-d', strtotime($this->input->post('work_date')));
 
+        $isTeacher = is_teacher_loggedin();
+        $isClassTeacher = $isTeacher && $this->subject_model->getClassTeacherByClassSection($classID, $sectionID);
+        $periodScoped = false;
+        $periodSubjectID = 0;
+        $timetableID = (int) $this->input->post('timetable_id');
+        if ($isTeacher && $timetableID > 0) {
+            $periodScope = $this->digital_diary_get_teacher_timetable_scope($timetableID, $branchID, $workDate);
+            if ($periodScope === false
+                || (int) $periodScope->class_id !== $classID
+                || (int) $periodScope->section_id !== $sectionID) {
+                echo json_encode(array('status' => 'fail', 'error' => array('class_id' => translate('access_denied'))));
+                return;
+            }
+            $periodScoped = true;
+            $periodSubjectID = (int) $periodScope->subject_id;
+        }
+        if ($isTeacher && !$isClassTeacher && !$periodScoped) {
+            echo json_encode(array('status' => 'fail', 'error' => array('class_id' => translate('access_denied'))));
+            return;
+        }
         $isCoordinatorForClass = $this->digital_diary_user_may_coordinate()
             && $this->digital_diary_user_may_coordinate_class_section($classID, $sectionID);
         if (is_teacher_loggedin() && !$isCoordinatorForClass
+            && !$periodScoped
             && !$this->digital_diary_teacher_may_use_class_section($branchID, $classID, $sectionID)) {
             echo json_encode(array('status' => 'fail', 'error' => array('class_id' => translate('access_denied'))));
             return;
@@ -5968,8 +6889,6 @@ class Digital_diary extends Admin_Controller
             $sectionID
         );
 
-        $isTeacher = is_teacher_loggedin();
-        $isClassTeacher = $isTeacher && $this->subject_model->getClassTeacherByClassSection($classID, $sectionID);
         $teacherSubjectIds = array();
         if ($isTeacher) {
             $tq = $this->subject_model->getSubjectByClassSection($classID, $sectionID);
@@ -6016,11 +6935,17 @@ class Digital_diary extends Admin_Controller
             if ($subjectID <= 0 || !is_array($swrByStudent)) {
                 continue;
             }
+            if ($periodScoped && !$isClassTeacher && $subjectID !== $periodSubjectID) {
+                echo json_encode(array('status' => 'fail', 'error' => array('form_error' => translate('access_denied'))));
+                return;
+            }
             if (!$this->digital_diary_today_work_validate_subject($branchID, $classID, $sectionID, $subjectID)) {
                 echo json_encode(array('status' => 'fail', 'error' => array('form_error' => translate('invalid') . ' ' . translate('subject'))));
                 return;
             }
-            if ($isTeacher && !$isClassTeacher && !$isCoordinatorForClass && !in_array($subjectID, $teacherSubjectIds, true)) {
+            if ($isTeacher && !$isClassTeacher && !$isCoordinatorForClass
+                && !($periodScoped && $subjectID === $periodSubjectID)
+                && !in_array($subjectID, $teacherSubjectIds, true)) {
                 echo json_encode(array('status' => 'fail', 'error' => array('form_error' => translate('access_denied'))));
                 return;
             }
@@ -6091,11 +7016,78 @@ class Digital_diary extends Admin_Controller
             'section_id' => (int) $sectionID,
             'branch_id' => (int) $branchID,
         );
+        if ($periodScoped && !$isClassTeacher) {
+            $q['subject_id'] = $periodSubjectID;
+            $q['timetable_id'] = $timetableID;
+        }
+        $continueUrl = base_url('digital_diary/today_work') . '?' . http_build_query($q);
+        $continueMessage = 'Step 1 saved. Continuing to Step 2: Add Today\'s Work.';
+        if ($periodScoped && !$isClassTeacher) {
+            $continueMessage = 'Step 1 saved for your subject. Continue to Step 2: Today\'s Work.';
+        }
         echo json_encode(array(
             'status' => 'success',
-            'url' => base_url('digital_diary/today_work') . '?' . http_build_query($q),
-            'message' => 'Step 1 saved. Continuing to Step 2: Add Today\'s Work.',
+            'url' => $continueUrl,
+            'message' => $continueMessage,
         ));
+    }
+
+    public function mark_timetable_period_conducted()
+    {
+        if ($this->input->method() !== 'post' || !is_teacher_loggedin()) {
+            access_denied();
+        }
+
+        $teacherID = (int) get_loggedin_user_id();
+        $branchID = (int) get_loggedin_branch_id();
+        $sessionID = (int) get_session_id();
+        $timetableID = (int) $this->input->post('timetable_id');
+        $workDate = trim((string) $this->input->post('work_date'));
+        $date = DateTime::createFromFormat('!Y-m-d', $workDate);
+        $validDate = $date && $date->format('Y-m-d') === $workDate;
+        $redirectQuery = array('date' => $validDate ? $workDate : date('Y-m-d'));
+        if ($branchID > 0) {
+            $redirectQuery['branch_id'] = $branchID;
+        }
+        $redirectUrl = base_url('digital_diary/student_work_report_entry') . '?' . http_build_query($redirectQuery);
+
+        if (!$validDate || $timetableID < 1 || $branchID < 1 || $sessionID < 1) {
+            set_alert('error', 'Invalid period or work date.');
+            redirect($redirectUrl);
+        }
+
+        $period = $this->db->get_where('timetable_class', array(
+            'id' => $timetableID,
+            'branch_id' => $branchID,
+            'session_id' => $sessionID,
+            'teacher_id' => $teacherID,
+        ))->row();
+        if (empty($period) || $this->digital_diary_is_timetable_break($period->break)) {
+            access_denied();
+        }
+        if (strtolower(date('l', strtotime($workDate))) !== strtolower((string) $period->day)
+            || !$this->digital_diary_is_school_open_day($workDate, $branchID)) {
+            set_alert('error', 'This period is not scheduled for that date.');
+            redirect($redirectUrl);
+        }
+        if ($workDate > date('Y-m-d')
+            || ($workDate === date('Y-m-d') && strtotime($workDate . ' ' . $period->time_end) > time())) {
+            set_alert('error', 'You can mark a period conducted only after it ends.');
+            redirect($redirectUrl);
+        }
+        if (!$this->digital_diary_model->markDigitalDiaryTimetablePeriodConducted(
+            $branchID,
+            $sessionID,
+            $workDate,
+            $timetableID,
+            $teacherID
+        )) {
+            set_alert('error', 'The period status could not be saved.');
+            redirect($redirectUrl);
+        }
+
+        set_alert('success', 'Period marked as conducted.');
+        redirect($redirectUrl);
     }
 
     /**
@@ -6139,6 +7131,10 @@ class Digital_diary extends Admin_Controller
             $nowGoing = '';
             $classWorkStr = '';
             $homeWorkStr = '';
+            $classWorkActivity = '—';
+            $classWorkNotebook = '—';
+            $homeWorkActivity = '—';
+            $homeWorkNotebook = '—';
             $sylPct = '—';
             $workPct = '—';
 
@@ -6146,30 +7142,39 @@ class Digital_diary extends Admin_Controller
                 $hasMultiLessons = !empty($saved['lesson_ids']) && $this->db->field_exists('lesson_ids', 'digital_diary_today_work');
                 if ($hasMultiLessons) {
                     $nowGoing = $this->digital_diary_model->formatMultiLessonLabels($saved['lesson_ids'], $classID, $sectionID, $sid, $branchID);
-                } elseif (!empty($saved['lesson_id']) && !empty($saved['lesson_no'])) {
-                    $nowGoing = 'Lesson - ' . $saved['lesson_no'] . ', ' . $saved['lesson_name'];
                 } elseif (!empty($saved['lesson_id'])) {
-                    $les = $this->app_lib->getTable('digital_diary_lesson', array('t.id' => $saved['lesson_id']), true);
-                    if (!empty($les)) {
-                        $nowGoing = 'Lesson - ' . $les['lesson_no'] . ', ' . $les['lesson_name'];
+                    foreach ($this->digital_diary_model->getLessonsBySubject($classID, $sectionID, $sid, $branchID) as $lesson) {
+                        if ((int) $lesson['id'] === (int) $saved['lesson_id']) {
+                            $nowGoing = 'Lesson - ' . $lesson['lesson_no'] . ', ' . $lesson['lesson_name'];
+                            break;
+                        }
                     }
                 }
-                $classWorkStr = $this->digital_diary_model->formatTodayWorkActivityWithDetail(
+                $classWorkActivity = $this->digital_diary_model->formatTodayWorkActivityWithDetail(
                     $this->digital_diary_model->formatTodayWorkItemsDisplay(
                         isset($saved['class_work_items']) ? $saved['class_work_items'] : '',
                         $branchID
                     ),
                     isset($saved['cw_detail']) ? $saved['cw_detail'] : ''
                 );
-                if ($this->db->field_exists('cw_notebook_type_ids', 'digital_diary_today_work') && !empty(trim((string) (isset($saved['cw_notebook_type_ids']) ? $saved['cw_notebook_type_ids'] : '')))) {
-                    $cwNbIds = array_filter(array_map('intval', explode(',', $saved['cw_notebook_type_ids'])));
+                $classWorkStr = $classWorkActivity;
+                $cwNbRaw = '';
+                if ($this->db->field_exists('cw_notebook_type_ids', 'digital_diary_today_work')) {
+                    $cwNbRaw = isset($saved['cw_notebook_type_ids']) ? $saved['cw_notebook_type_ids'] : '';
+                }
+                if (trim((string) $cwNbRaw) === '' && $this->db->field_exists('cw_notebook_type_id', 'digital_diary_today_work')) {
+                    $cwNbRaw = isset($saved['cw_notebook_type_id']) ? $saved['cw_notebook_type_id'] : '';
+                }
+                if (trim((string) $cwNbRaw) !== '') {
+                    $cwNbIds = array_filter(array_map('intval', explode(',', (string) $cwNbRaw)));
                     $cwNbNames = $this->digital_diary_model->getNotebookTypeNamesByIdsOrdered($cwNbIds);
                     if (!empty($cwNbNames)) {
-                        $nbTxt = 'NB: ' . implode(', ', $cwNbNames);
+                        $classWorkNotebook = implode(', ', $cwNbNames);
+                        $nbTxt = 'NB: ' . $classWorkNotebook;
                         $classWorkStr = ($classWorkStr === '—') ? $nbTxt : $classWorkStr . ' · ' . $nbTxt;
                     }
                 }
-                $hwItems = $this->digital_diary_model->formatTodayWorkActivityWithDetail(
+                $homeWorkActivity = $this->digital_diary_model->formatTodayWorkActivityWithDetail(
                     $this->digital_diary_model->formatTodayWorkItemsDisplay(
                         isset($saved['home_work_items']) ? $saved['home_work_items'] : '',
                         $branchID
@@ -6177,18 +7182,25 @@ class Digital_diary extends Admin_Controller
                     isset($saved['hw_detail']) ? $saved['hw_detail'] : ''
                 );
                 $note = isset($saved['home_work_note']) ? trim((string) $saved['home_work_note']) : '';
-                if ($hwItems !== '—' && $note !== '') {
-                    $homeWorkStr = $hwItems . ' — ' . $note;
+                if ($homeWorkActivity !== '—' && $note !== '') {
+                    $homeWorkActivity .= ' — ' . $note;
                 } elseif ($note !== '') {
-                    $homeWorkStr = $note;
-                } else {
-                    $homeWorkStr = $hwItems;
+                    $homeWorkActivity = $note;
                 }
-                if ($this->db->field_exists('hw_notebook_type_ids', 'digital_diary_today_work') && !empty(trim((string) (isset($saved['hw_notebook_type_ids']) ? $saved['hw_notebook_type_ids'] : '')))) {
-                    $hwNbIds = array_filter(array_map('intval', explode(',', $saved['hw_notebook_type_ids'])));
+                $homeWorkStr = $homeWorkActivity;
+                $hwNbRaw = '';
+                if ($this->db->field_exists('hw_notebook_type_ids', 'digital_diary_today_work')) {
+                    $hwNbRaw = isset($saved['hw_notebook_type_ids']) ? $saved['hw_notebook_type_ids'] : '';
+                }
+                if (trim((string) $hwNbRaw) === '' && $this->db->field_exists('hw_notebook_type_id', 'digital_diary_today_work')) {
+                    $hwNbRaw = isset($saved['hw_notebook_type_id']) ? $saved['hw_notebook_type_id'] : '';
+                }
+                if (trim((string) $hwNbRaw) !== '') {
+                    $hwNbIds = array_filter(array_map('intval', explode(',', (string) $hwNbRaw)));
                     $hwNbNames = $this->digital_diary_model->getNotebookTypeNamesByIdsOrdered($hwNbIds);
                     if (!empty($hwNbNames)) {
-                        $nbTxt = 'NB: ' . implode(', ', $hwNbNames);
+                        $homeWorkNotebook = implode(', ', $hwNbNames);
+                        $nbTxt = 'NB: ' . $homeWorkNotebook;
                         $homeWorkStr = ($homeWorkStr === '—') ? $nbTxt : $homeWorkStr . ' · ' . $nbTxt;
                     }
                 }
@@ -6213,6 +7225,7 @@ class Digital_diary extends Admin_Controller
             } else {
                 $nowGoing = !empty($todayItem['activity_name']) ? $todayItem['activity_name'] : '—';
                 $classWorkStr = !empty($todayItem['remarks']) ? $todayItem['remarks'] : '—';
+                $classWorkActivity = $classWorkStr;
                 $homeWorkStr = '—';
                 if ($this->db->table_exists('digital_diary_lesson_completion') && $totalLesson > 0) {
                     $pct = $this->digital_diary_model->getLessonSyllabusCompletionPercent(
@@ -6256,12 +7269,62 @@ class Digital_diary extends Admin_Controller
                 'now_going_on' => $nowGoing !== '' ? $nowGoing : '—',
                 'class_work' => $classWorkStr !== '' ? $classWorkStr : '—',
                 'home_work' => $homeWorkStr !== '' ? $homeWorkStr : '—',
+                'class_work_activity' => $classWorkActivity,
+                'class_work_notebook' => $classWorkNotebook,
+                'home_work_activity' => $homeWorkActivity,
+                'home_work_notebook' => $homeWorkNotebook,
                 'learning_work' => $learningWorkStr,
                 'syllabus_percentage' => $sylPct,
                 'student_work_percentage' => $workPct,
             );
         }
         return $rows;
+    }
+
+    protected function digital_diary_parent_report_branch_print_details($branchID)
+    {
+        $details = array(
+            'info' => array(),
+            'school_name' => '',
+            'code' => '',
+            'code_label' => 'Branch ID',
+        );
+        $branchID = (int) $branchID;
+        if ($branchID < 1 || !$this->db->table_exists('branch')) {
+            return $details;
+        }
+
+        $codeField = '';
+        foreach (array('school_code', 'branch_code', 'institute_code', 'code') as $candidateCodeField) {
+            if ($this->db->field_exists($candidateCodeField, 'branch')) {
+                $codeField = $candidateCodeField;
+                break;
+            }
+        }
+        $select = 'id, name, school_name, address, mobileno, email, city, state';
+        if ($codeField !== '') {
+            $select .= ', ' . $codeField;
+        }
+        $branchInfo = $this->db->select($select)
+            ->from('branch')
+            ->where('id', $branchID)
+            ->limit(1)
+            ->get()
+            ->row_array();
+        if (empty($branchInfo)) {
+            return $details;
+        }
+
+        $schoolCode = ($codeField !== '' && !empty($branchInfo[$codeField]))
+            ? trim((string) $branchInfo[$codeField])
+            : '';
+        $details['info'] = $branchInfo;
+        $details['school_name'] = !empty($branchInfo['school_name'])
+            ? trim((string) $branchInfo['school_name'])
+            : trim((string) $branchInfo['name']);
+        $details['code'] = $schoolCode !== '' ? $schoolCode : (string) $branchInfo['id'];
+        $details['code_label'] = $schoolCode !== '' ? 'School Code' : 'Branch ID';
+        return $details;
     }
 
     /**
@@ -6293,6 +7356,13 @@ class Digital_diary extends Admin_Controller
         $this->data['period_info'] = null;
 
         $branchID = isset($this->data['branch_id']) ? $this->data['branch_id'] : '';
+        $schoolPrintDetails = $this->digital_diary_parent_report_branch_print_details($branchID);
+        $this->data['school_print_info'] = $schoolPrintDetails['info'];
+        $this->data['school_print_code'] = $schoolPrintDetails['code'];
+        $this->data['school_print_code_label'] = $schoolPrintDetails['code_label'];
+        if ($schoolPrintDetails['school_name'] !== '') {
+            $this->data['school_name'] = $schoolPrintDetails['school_name'];
+        }
         $reportDate = !empty($this->data['date_to']) ? $this->data['date_to'] : date('Y-m-d');
         $classID = isset($this->data['filter_class_id']) ? (int) $this->data['filter_class_id'] : 0;
         $sectionID = isset($this->data['filter_section_id']) ? (int) $this->data['filter_section_id'] : 0;
@@ -6309,7 +7379,7 @@ class Digital_diary extends Admin_Controller
         $this->data['grade_display'] = '';
 
         if (!empty($classID) && !empty($sectionID)) {
-            if (is_teacher_loggedin() && !$this->digital_diary_teacher_may_use_class_section($branchID, $classID, $sectionID)) {
+            if (is_teacher_loggedin() && !$this->digital_diary_teacher_is_class_teacher_for_section($classID, $sectionID)) {
                 access_denied();
             }
             $this->data['report_rows'] = $this->digital_diary_build_todays_work_report_rows($branchID, $reportDate, $classID, $sectionID, 0);
@@ -6597,6 +7667,91 @@ class Digital_diary extends Admin_Controller
         $this->load->view('layout/index', $this->data);
     }
 
+    public function parent_report_class_pdf()
+    {
+        $this->load->model('subject_model');
+        $reportDate = trim((string) $this->input->get('date'));
+        if ($reportDate === '' || !strtotime($reportDate)) {
+            $reportDate = date('Y-m-d');
+        } else {
+            $reportDate = date('Y-m-d', strtotime($reportDate));
+        }
+        $_GET['date'] = $reportDate;
+        $_GET['date_from'] = $reportDate;
+        $_GET['date_to'] = $reportDate;
+
+        $this->digital_diary_prepare_student_work_eval();
+        $branchID = (int) (isset($this->data['branch_id']) ? $this->data['branch_id'] : 0);
+        $classID = (int) (isset($this->data['filter_class_id']) ? $this->data['filter_class_id'] : 0);
+        $sectionID = (int) (isset($this->data['filter_section_id']) ? $this->data['filter_section_id'] : 0);
+        if ($branchID < 1 || $classID < 1 || $sectionID < 1) {
+            show_error('Select a branch, class, and section before sharing the class work PDF.', 400);
+        }
+        if (!is_superadmin_loggedin() && $branchID !== (int) get_loggedin_branch_id()) {
+            access_denied();
+        }
+        if (is_teacher_loggedin()
+            && (!$this->digital_diary_teacher_is_class_teacher_for_section($classID, $sectionID)
+                || !$this->digital_diary_teacher_may_use_class_section($branchID, $classID, $sectionID))) {
+            access_denied();
+        }
+
+        $hasClassRoster = $this->db->where(array(
+            'branch_id' => $branchID,
+            'session_id' => (int) get_session_id(),
+            'class_id' => $classID,
+            'section_id' => $sectionID,
+        ))->limit(1)->get('enroll')->num_rows() > 0;
+        if (!$hasClassRoster) {
+            show_error('The selected class and section have no students in the current session.', 404);
+        }
+
+        $schoolPrintDetails = $this->digital_diary_parent_report_branch_print_details($branchID);
+        $logoPath = FCPATH . 'uploads/app_image/printing-logo-' . $branchID . '.png';
+        if (!is_file($logoPath)) {
+            $logoPath = FCPATH . 'uploads/app_image/printing-logo.png';
+        }
+        $logoData = '';
+        if (is_file($logoPath) && is_readable($logoPath)) {
+            $logoContents = file_get_contents($logoPath);
+            if ($logoContents === false) {
+                show_error('Unable to read the school logo for the class PDF.', 500);
+            }
+            $logoData = 'data:image/png;base64,' . base64_encode($logoContents);
+        }
+
+        $pdfData = array(
+            'school_name' => $schoolPrintDetails['school_name'],
+            'school_print_info' => $schoolPrintDetails['info'],
+            'school_print_code' => $schoolPrintDetails['code'],
+            'school_print_code_label' => $schoolPrintDetails['code_label'],
+            'school_print_logo' => $logoData,
+            'class_name' => get_type_name_by_id('class', $classID),
+            'section_name' => get_type_name_by_id('section', $sectionID),
+            'report_date' => $reportDate,
+            'report_rows' => $this->digital_diary_build_todays_work_report_rows(
+                $branchID,
+                $reportDate,
+                $classID,
+                $sectionID,
+                0
+            ),
+        );
+        $html = $this->load->view('digital_diary/parent_report_class_pdf', $pdfData, true);
+
+        $this->load->library('html2pdf');
+        $this->html2pdf->mpdf->autoScriptToLang = true;
+        $this->html2pdf->mpdf->autoLangToFont = true;
+        $this->html2pdf->mpdf->WriteHTML($html);
+        $filename = 'class-work-home-work-' . $classID . '-' . $sectionID . '-' . $reportDate . '.pdf';
+        $pdf = $this->html2pdf->mpdf->Output($filename, 'S');
+        $this->output
+            ->set_content_type('application/pdf')
+            ->set_header('Content-Disposition: attachment; filename="' . $filename . '"')
+            ->set_header('Cache-Control: no-store, no-cache, must-revalidate')
+            ->set_output($pdf);
+    }
+
     /**
      * PTM Report Format - content as per PDF spec
      */
@@ -6664,7 +7819,7 @@ class Digital_diary extends Admin_Controller
         $this->data['month_label'] = date('F Y', strtotime($dateStart));
 
         if (!empty($classID) && !empty($sectionID)) {
-            if (is_teacher_loggedin() && !$this->digital_diary_teacher_may_use_class_section($branchID, $classID, $sectionID)) {
+            if (is_teacher_loggedin() && !$this->digital_diary_teacher_is_class_teacher_for_section($classID, $sectionID)) {
                 access_denied();
             }
             $subjectsForGrid = array();
@@ -6672,9 +7827,6 @@ class Digital_diary extends Admin_Controller
             foreach ($allSubQ->result() as $srow) {
                 if (!empty($srow->subject_id)) {
                     $subId = (int) $srow->subject_id;
-                    if (is_teacher_loggedin() && !$this->digital_diary_teacher_may_view_subject($classID, $sectionID, $subId)) {
-                        continue;
-                    }
                     $subjectsForGrid[] = array(
                         'subject_id' => $subId,
                         'subject_name' => (string) $srow->subjectname,
@@ -6704,7 +7856,7 @@ class Digital_diary extends Admin_Controller
 
             if ($studentValid) {
                 $sessionID = (int) get_session_id();
-                $this->db->select('s.id as student_id, s.register_no, s.birthday, s.current_address, e.roll, c.name as class_name, se.name as section_name, p.father_name, p.mother_name, p.address as parent_address, CONCAT_WS(" ", s.first_name, s.last_name) as fullname');
+                $this->db->select('s.id as student_id, s.register_no, s.birthday, s.current_address, s.mobileno as student_mobile, e.roll, c.name as class_name, se.name as section_name, p.father_name, p.mother_name, p.address as parent_address, p.mobileno as parent_mobile, CONCAT_WS(" ", s.first_name, s.last_name) as fullname');
                 $this->db->from('enroll e');
                 $this->db->join('student s', 's.id = e.student_id', 'inner');
                 $this->db->join('class c', 'c.id = e.class_id', 'left');
@@ -6755,6 +7907,7 @@ class Digital_diary extends Admin_Controller
                         $pendingFee = 0.0;
                     }
 
+                    $parentMobile = !empty($sb['parent_mobile']) ? trim((string) $sb['parent_mobile']) : '';
                     $this->data['student_block'] = array(
                         'admission_no' => isset($sb['register_no']) ? (string) $sb['register_no'] : '—',
                         'class_name' => $classDisp !== '' ? $classDisp : '—',
@@ -6765,6 +7918,7 @@ class Digital_diary extends Admin_Controller
                         'address' => $addr !== '' ? $addr : '—',
                         'dob' => $dob !== '' ? $dob : '—',
                         'pending_fee' => $pendingFee,
+                        'mobile' => $parentMobile !== '' ? $parentMobile : (!empty($sb['student_mobile']) ? trim((string) $sb['student_mobile']) : ''),
                     );
                 }
 

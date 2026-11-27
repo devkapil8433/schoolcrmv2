@@ -4,7 +4,7 @@ $currency_symbol = $global_config['currency_symbol'];
 ?>
 <div class="row">
 	<div class="col-md-12">
-		<section class="panel">
+		<section class="panel fee-collection-filter">
 			<header class="panel-heading">
 				<h4 class="panel-title"><?=translate('select_ground')?></h4>
 			</header>

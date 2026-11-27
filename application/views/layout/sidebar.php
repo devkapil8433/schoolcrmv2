@@ -342,11 +342,11 @@
                                 </a>
                             </li>
                              <?php }  if(get_permission('complaint', 'is_view')){ ?>
-                            <!-- <li class="<?php //if ($sub_page == 'fees_structure/complaint' || $sub_page == 'fees_structure/complaint_edit') echo 'nav-active';?>">
+                            <li class="<?php if ($sub_page == 'fees_structure/complaint' || $sub_page == 'fees_structure/complaint_edit') echo 'nav-active';?>">
                                 <a href="<?=base_url('fees_structure/day_books')?>">
                                     <span><i class="fas fa-caret-right" aria-hidden="true"></i><?=translate('fees_day_books')?></span>
                                 </a>
-                            </li> -->
+                            </li>
                              <?php }  if(get_permission('complaint', 'is_view')){ ?>
                             <!-- <li class="<?php if ($sub_page == 'fees_structure/complaint' || $sub_page == 'fees_structure/complaint_edit') echo 'nav-active';?>">
                                 <a href="<?=base_url('fees_structure/fees_discount_report')?>">
@@ -354,11 +354,11 @@
                                 </a>
                             </li> -->
                              <?php }  if(get_permission('complaint', 'is_view')){ ?>
-                            <!-- <li class="<?php //if ($sub_page == 'fees_structure/complaint' || $sub_page == 'fees_structure/complaint_edit') echo 'nav-active';?>">
+                            <li class="<?php if ($sub_page == 'fees_structure/complaint' || $sub_page == 'fees_structure/complaint_edit') echo 'nav-active';?>">
                                 <a href="<?=base_url('fees_structure/demand_register')?>">
                                     <span><i class="fas fa-caret-right" aria-hidden="true"></i><?=translate('demand_register')?></span>
                                 </a>
-                            </li> -->
+                            </li>
                              <?php }  if(get_permission('fees_register', 'is_view')){ ?>
                             <li class="<?php if ($sub_page == 'fees_structure/fees_register' || $sub_page == 'fees_structure/fees_register_edit') echo 'nav-active';?>">
                                 <a href="<?=base_url('fees_structure/fees_register')?>">
@@ -2058,6 +2058,34 @@
                         </ul>
                     </li>
                     <?php } } ?>
+                    <?php if (is_superadmin_loggedin() || is_admin_loggedin()) { ?>
+                    <!-- login manager -->
+                    <li class="<?php if ($main_menu == 'login_manager') echo 'nav-active';?>">
+                        <a href="<?=base_url('login_manager')?>">
+                            <i class="fas fa-key"></i><span><?=translate('login_manager')?></span>
+                        </a>
+                    </li>
+                    <?php } ?>
+                    <?php if (is_superadmin_loggedin()) { ?>
+                    <!-- platform: schools / branches / subscriptions -->
+                    <li class="nav-parent <?php if (in_array($main_menu, array('platform_schools', 'platform_branches', 'platform_subscriptions'))) echo 'nav-expanded nav-active';?>">
+                        <a><i class="fas fa-school"></i><span><?=translate('subscription_control')?></span></a>
+                        <ul class="nav nav-children">
+                            <li class="<?php if ($main_menu == 'platform_schools') echo 'nav-active';?>"><a href="<?=base_url('schools')?>"><span><i class="fas fa-caret-right"></i> <?=translate('school_management')?></span></a></li>
+                            <li class="<?php if ($main_menu == 'platform_branches') echo 'nav-active';?>"><a href="<?=base_url('branch_manager')?>"><span><i class="fas fa-caret-right"></i> <?=translate('branch_management')?></span></a></li>
+                            <li class="<?php if ($sub_page == 'subscriptions/index' || $sub_page == 'subscriptions/view' || $sub_page == 'subscriptions/form') echo 'nav-active';?>"><a href="<?=base_url('subscriptions')?>"><span><i class="fas fa-caret-right"></i> <?=translate('subscription_management')?></span></a></li>
+                            <li class="<?php if ($sub_page == 'subscriptions/payments') echo 'nav-active';?>"><a href="<?=base_url('subscriptions/payments')?>"><span><i class="fas fa-caret-right"></i> <?=translate('payment_history')?></span></a></li>
+                            <li class="<?php if ($sub_page == 'subscriptions/expiring') echo 'nav-active';?>"><a href="<?=base_url('subscriptions/expiring')?>"><span><i class="fas fa-caret-right"></i> <?=translate('expiring_and_expired_subscriptions')?></span></a></li>
+                            <li class="<?php if ($sub_page == 'subscriptions/settings') echo 'nav-active';?>"><a href="<?=base_url('subscriptions/settings')?>"><span><i class="fas fa-caret-right"></i> <?=translate('subscription_settings')?></span></a></li>
+                            <li class="<?php if ($sub_page == 'subscriptions/audit') echo 'nav-active';?>"><a href="<?=base_url('subscriptions/audit')?>"><span><i class="fas fa-caret-right"></i> <?=translate('audit_log')?></span></a></li>
+                        </ul>
+                    </li>
+                    <?php } elseif (is_admin_loggedin() && $this->db->table_exists('school_admin')
+                        && $this->db->where('staff_id', (int) get_loggedin_user_id())->count_all_results('school_admin') > 0) { ?>
+                    <li class="<?php if ($main_menu == 'platform_branches') echo 'nav-active';?>">
+                        <a href="<?=base_url('branch_manager')?>"><i class="fas fa-code-branch"></i><span><?=translate('branch_management')?></span></a>
+                    </li>
+                    <?php } ?>
                     <!-- addon manager -->
                     <?php 
                     if (is_superadmin_loggedin()) { ?>
