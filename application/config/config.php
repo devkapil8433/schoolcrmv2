@@ -30,7 +30,7 @@ if (PHP_SAPI !== 'cli' && preg_match('/^[a-z0-9][a-z0-9.\-]*(\:\d+)?$/i', $host)
     $scheme = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
     $config['base_url'] = $scheme . '://' . $host . '/schoolpilot360/';
 } else {
-    $config['base_url'] = 'http://localhost:8080/schoolpilot360/';
+    $config['base_url'] = 'http://localhost/schoolpilot360/';
 }
 
 /*

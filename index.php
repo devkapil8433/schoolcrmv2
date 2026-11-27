@@ -62,7 +62,7 @@ ini_set('display_errors', 1);
 	ini_set('post_max_size', '128M');
 	ini_set('upload_max_filesize', '128M');
  
-	define('ENVIRONMENT', isset($_SERVER['CI_ENV']) ? $_SERVER['CI_ENV'] : 'production');
+	define('ENVIRONMENT', isset($_SERVER['CI_ENV']) ? $_SERVER['CI_ENV'] : 'development');
 
 	// Localhost-only CI4-style debug toolbar / query logging gate
 	if ( ! defined('CI_LOCALHOST'))

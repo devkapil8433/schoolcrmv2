@@ -1,6 +1,6 @@
 <IfModule mod_rewrite.c>
     RewriteEngine On
-    RewriteBase /newschool/
+    RewriteBase /schoolpilot360/
 
     # If the request is for an existing file or directory, serve it as-is
     RewriteCond %{REQUEST_FILENAME} !-f
